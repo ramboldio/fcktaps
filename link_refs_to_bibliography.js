@@ -86,6 +86,16 @@ const get_anchor_ref = (block) => {
 	} else return undefined;
 };
 
+const get_custom_style = (block) => {
+	if (block.t != "Div") {
+		return null;
+	}
+	const elem = block.c[0][2][0];
+	if (elem[0] == "custom-style") {
+		return elem[1];
+	} else return null;
+};
+
 const trim_figure_prefix = (para) => {
 	// TODO make this work for real by using a regex
 	return Para([...para.c.slice(4)]);
@@ -232,7 +242,6 @@ const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
 
 		// citations
 		blocks = blocks.map(b => mapTree(b, b => convert_link_to_cite(b, mapping)));
-
 
 		doc.blocks = blocks;
 		return doc;

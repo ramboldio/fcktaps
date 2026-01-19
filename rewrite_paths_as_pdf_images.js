@@ -55,12 +55,12 @@ const Figure = (caption, image, ref_id) => ({
 	readStdin()
 	  .then(async (stdin_content) => {
 	  	const doc = JSON.parse(stdin_content);
-	  	debugger
+	  	let image_index = 1;
  			doc.block = doc.blocks.map(b => mapTree(b, b => {
  				if (b.t === "Image") {
  					const image_path = b.c[2][0];
-					const image_id = Number(image_path.match(/media\/image(\d+)\.png/)[1]);
-					const new_path = `./figures_pdf/Artboard ${image_id}.pdf`;
+					const new_path = `./figures_pdf/Artboard ${image_index}.pdf`;
+					image_index = image_index + 1;
 					b.c[2][0] = new_path;
  				}
  				return b;

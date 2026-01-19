@@ -112,15 +112,21 @@ const MetaList = (items) => ({
 		
 		let blocks = doc.blocks;
 
-		// escape unicode characters
+		// special characters
+		// TODO find correct code for unicode
+		const mapping = ({
+			">>": "\\>\\>",
+			"<<": "\\<\\<",
+			"σ": "\\sigma",
+			"π": "\\pi",
+			"⌀": "\\unichar\{\"20AC\}"
+		});
+
 		blocks = blocks.map(b => mapTree(b, b => {
-			if (b.t === "Str") {
-				// TODO find correct code for unicode
-				return ({ ...b, c: b.c.replace("⌀", "AVERAGE")
-					.replace(">>", "\\>\\>")
-					.replace("<<", "\\<\\<")
-					.replace("σ", "\\sigma")
-					.replace("π", "\\pi")});
+			if (b.t === "Str" && Object.keys(mapping).filter(key => b.c.includes(key)).length > 0) {
+				let string = b.c;
+				Object.entries(mapping).forEach((k, v) => string.replace(k, v));
+				return RawLatex(string);
 			}
 			return b;
 		}));
@@ -182,7 +188,7 @@ const MetaList = (items) => ({
 				}`
 		);
 
-		const render_author_short_handle = (author_short_handle) => RawLatexPara(`\\renewcommand{\\shortauthors}{${author_short_handle} et al.}`);
+		const render_author_short_handle = (author_short_handle) => RawLatexPara(`\\renewcommand{\\shortauthors}{${author_short_handle}}`);
 
 		const render_ccs = () => RawLatexPara(`
 			\\begin{CCSXML}
@@ -196,17 +202,18 @@ const MetaList = (items) => ({
 			\\end{CCSXML}
 			\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}
 		`);
-		// TODO remove CCS that word generates
 
 		// TODO move these to document metadata
 		const authors = ["Lukas Rambold", "Robert Kovacs", "Min Deng", "Antonius Naumann", "Konrad Gerlach", "Horatio Hamkins", "Helena Lendowski", "Chiao Fang", "Shohei Katakura", "Conrad Lempert", "Muhammad Abdullah", "Patrick Baudisch"];
-		const author_short_handle = "Rambold"
+		const author_short_handle = "Rambold et al."
 
 		blocks = [
 			RawLatexPara(`
 \\documentclass[sigconf,screen]{acmart}
 \\usepackage{graphicx}
-\\usepackage{float}      % for h option if needed`),
+\\usepackage[utf8x]{inputenc}
+\\usepackage{float}      % for h option if needed
+			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),
 			render_ccs(),

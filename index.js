@@ -13,41 +13,6 @@ const readStdin = () => {
   });
 }
 
-// Helper: normalize text for matching
-function normalize(str) {
-  return str
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove accents
-    .replace(/[.,;:()\[\]"']/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-// TODO make all citations match
-function matchEntryToBib(bib, entry) {
-  const text = normalize(stringify_inlines(entry.c));
-
-  for (const item of bib) {
-    const title = normalize(item.title || "");
-    const authors = (item.author || []).map(a => normalize(a.family || ""));
-    const year = item.issued?.["date-parts"]?.[0]?.[0] || "";
-
-    // Match first author OR any author if multiple words
-    const authorMatch = authors.some(a => text.includes(a));
-
-    // Match year with word boundary
-    const yearMatch = year ? new RegExp(`\\b${year}\\b`).test(text) : true;
-
-    // Title match optional
-    const titleMatch = title.length > 0 ? text.includes(title) : true;
-
-    if (authorMatch && yearMatch && titleMatch) {
-      return item.id || item.key;
-    }
-  }
-  return null;
-}
-
 const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
 	if (b.t === "Str"){
 		return b.c;
@@ -219,17 +184,10 @@ const convert_div_to_para = (block) => {
 	else return block;
 };
 
-const convert_to_pdf_image_path = (image_path) => {
-	// TODO fix figure mapping
-	const image_id = Number(image_path.match(/media\/image(\d+)\.png/)[1]);
-	return `./figures/figure_artboard_${image_id}.pdf`;
-} 
 const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
-
 
 (async () => {
 	readStdin().then(async (stdin_content) => {
-		const bib = JSON.parse(fs.readFileSync("zotero.json"));
 		const doc = JSON.parse(stdin_content);
 		
 		let blocks = doc.blocks;
@@ -245,23 +203,9 @@ const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
 		blocks = blocks.filter(b => get_custom_style(b) !== styles.abstract);
 
 		// acknoldgements
-		// TODO fix that exising text gets deleted
 		const acknoledgement_heading_index = blocks.findIndex(b => get_custom_style(b) === styles.acknoledgement_heading);
 		doc.meta.acknoledgements = MetaInlines(blocks[acknoledgement_heading_index + 1].c);
-		blocks = blocks.filter((_, i) => i !== acknoledgement_heading_index || i !== acknoledgement_heading_index + 1);
-
-		// Bibliography
-		const bib_entries = blocks
-			.filter(b => b.t === "OrderedList")
-			.map(b => b.c[1])
-			.filter(b => get_custom_style(b) !== styles.bibliography_entry)
-			.flat(2)
-			.map(get_first_child);
-		const word_keys = bib_entries.map(b => get_anchor_ref(b.c[0]));
-		const zotero_keys = bib_entries.map(b => matchEntryToBib(bib, b));
-		const mapping = Object.fromEntries(word_keys.map((k, i) => [k, zotero_keys[i]]));
-		// FIXME check for styles before removing list
-		blocks = blocks.filter(b => b.t !== "OrderedList");
+		blocks = blocks.filter((_, i) => i !== acknoledgement_heading_index && i !== acknoledgement_heading_index + 1);
 
 		// Figures and Captions
 		let skip = false;
@@ -306,134 +250,10 @@ const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
 
 		// remove boilerplate
 		blocks = blocks.filter(b => !is_boilerplate(b));
-
-		// citations
-		blocks = blocks.map(b => mapTree(b, b => convert_link_to_cite(b, mapping)));
-
-		// Bibliography
-		// TODO format, use correct citation style
 		
-		// TODO Algorithm support 
+		// TODO Algorithm support
 
-		// TODO make everything compatiable to Emph, Strong, Span, Captions etc.
-
-
-		// LATEX STAGE
-		// TODO move this into seperate file
-		
-		// escape unicode characters
-		blocks = blocks.map(b => mapTree(b, b => {
-			if (b.t === "Str") {
-				// TODO find correct code for unicode
-				return ({ ...b, c: b.c.replace("⌀", "AVERAGE")
-					.replace(">>", "\\>\\>")
-					.replace("<<", "\\<\\<")
-					.replace("σ", "\\sigma")
-					.replace("π", "\\pi")});
-			}
-			return b;
-		}));
-
-		const figure_one_index = blocks.findIndex(b => b.t === "Figure");
-		const figure_one = blocks[figure_one_index];
-		blocks = blocks.filter((_, i) => i !== figure_one_index);
-
-		const render_figure = (figure) => Para([
-			RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
-			RawLatex(`\\label{${figure.c[0][0]}}`),
-			RawLatex("\\caption{"),
-			...figure.c[1][1][0].c,
-			RawLatex("}\n\\end{figure}"),
-		]);
-
-		blocks = blocks.map(b => {
-			if (b.t === "Figure") {
-				return render_figure(b);
-			} else return b;
-		});
-
-		const render_figure_one = (figure) => Para([
-			RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
-			RawLatex(`\\label{${figure.c[0][0]}}`),
-			RawLatex("\\caption{"),
-			...figure.c[1][1][0].c,
-			RawLatex("}\n\\end{teaserfigure}"),
-		]);
-
-		const render_title = (title_para) => Para([
-			RawLatex("\\title{"),
-			...title_para.c,
-			RawLatex("}")
-		]);
-
-		const render_abstract = (abstract_para) => Para([
-			RawLatex("\\begin{abstract}\n"),
-			...abstract_para.c,
-			RawLatex("\\end{abstract}\n")
-		]);
-
-		const render_acknoledgements = (acks_para) => Para([
-			RawLatex("\n\\begin{acks}\n"),
-			...acks_para.c,
-			RawLatex("\n\\end{acks}\n")
-		]);
-
-		const render_keywords = (keywords) => RawLatexPara(`\\keywords{${keywords.join(", ")}}`);
-
-		const RawLatexPara = (text) => Para([RawLatex(text)]);
-
-		const render_author = (author) => RawLatexPara(`
-			 \\author{${author}}
-				\\affiliation{
-					\\institution{Hasso-Plattner-Institute}
-					\\city{Potsdam}
-					\\country{Germany}
-				}`
-		);
-
-		const render_author_short_handle = (author_short_handle) => RawLatexPara(`\\renewcommand{\\shortauthors}{${author_short_handle} et al.}`);
-
-		const render_ccs = () => RawLatexPara(`
-			\\begin{CCSXML}
-			<ccs2012>
-			<concept>
-			<concept_id>10003120.10003121.10003129</concept_id>
-			<concept_desc>Human-centered computing~Interactive systems and tools</concept_desc>
-			<concept_significance>500</concept_significance>
-			</concept>
-			</ccs2012>
-			\\end{CCSXML}
-			\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}
-		`);
-		// TODO remove CCS that word generates
-
-		// TODO move these to document metadata
-		const authors = ["Lukas Rambold", "Robert Kovacs", "Min Deng", "Antonius Naumann", "Konrad Gerlach", "Horatio Hamkins", "Helena Lendowski", "Chiao Fang", "Shohei Katakura", "Conrad Lempert", "Muhammad Abdullah", "Patrick Baudisch"];
-		const author_short_handle = "Rambold"
-
-		blocks = [
-			RawLatexPara(`
-\\documentclass[sigconf,screen]{acmart}
-\\usepackage{graphicx}
-\\usepackage{float}      % for h option if needed`),
-			render_title(doc.meta.title),
-			render_abstract(doc.meta.abstract),
-			render_ccs(),
-			// TODO parse proper keywords from document put them into meta block
-			render_keywords(doc.meta.keywords.c.map(item => item.c)),
-			render_figure_one(figure_one),
-			...authors.map(render_author),
-			render_author_short_handle(author_short_handle),
-			RawLatexPara(`
-\\begin{document}
-\\maketitle`),
-			...blocks,
-			render_acknoledgements(doc.meta.acknoledgements),
-			RawLatexPara(`
-\\bibliographystyle{ACM-Reference-Format}
-\\bibliography{zotero}
-\\end{document}`)
-		];
+		// TODO math syntax support
 
 		doc.blocks = blocks;
 		return doc;
