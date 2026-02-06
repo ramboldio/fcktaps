@@ -107,41 +107,55 @@ const MetaList = (items) => ({
 
 (async () => {
 	readStdin().then(async (stdin_content) => {
-		const bib = JSON.parse(fs.readFileSync("zotero.json"));
 		const doc = JSON.parse(stdin_content);
 		
 		let blocks = doc.blocks;
 
 		// special characters
 		// TODO find correct code for unicode
-		const mapping = ({
-			">>": "\\>\\>",
-			"<<": "\\<\\<",
-			"σ": "\\sigma",
-			"π": "\\pi",
-			"⌀": "\\unichar\{\"20AC\}"
-		});
+		// The following is not matching to the right things
+		// const mapping = ({
+		// 	">>": "\\>\\>",
+		// 	"<<": "\\<\\<",
+		// 	"σ": "\\sigma",
+		// 	"π": "\\pi",
+		// 	"⌀": "\\unichar\{\"20AC\}"
+		// });
 
-		blocks = blocks.map(b => mapTree(b, b => {
-			if (b.t === "Str" && Object.keys(mapping).filter(key => b.c.includes(key)).length > 0) {
-				let string = b.c;
-				Object.entries(mapping).forEach((k, v) => string.replace(k, v));
-				return RawLatex(string);
-			}
-			return b;
-		}));
+		// blocks = blocks.map(b => mapTree(b, b => {
+		// 	if (b.t === "Str" && Object.keys(mapping).filter(key => b.c.includes(key)).length > 0) {
+		// 		let string = b.c;
+		// 		Object.entries(mapping).forEach((k, v) => string.replace(k, v));
+		// 		return RawLatex(string);
+		// 	}
+		// 	return b;
+		// }));
 
 		const figure_one_index = blocks.findIndex(b => b.t === "Figure");
 		const figure_one = blocks[figure_one_index];
 		blocks = blocks.filter((_, i) => i !== figure_one_index);
 
-		const render_figure = (figure) => Para([
-			RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
-			RawLatex(`\\label{${figure.c[0][0]}}`),
-			RawLatex("\\caption{"),
-			...figure.c[1][1][0].c,
-			RawLatex("}\n\\end{figure}"),
-		]);
+		const get_alt_text = (figure) => {
+			const image = figure.c[2][0].c[0];
+			const alt_inlines = image.c[1] || [];
+			// TODO make sure that this is not handled here, but in pandoc, so e.g. \% etc gets exited
+			return stringify_inlines(alt_inlines);
+		};
+
+		const render_figure = (figure) => {
+			const alt = get_alt_text(figure);
+			const parts = [
+				RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
+				RawLatex(`\\label{${figure.c[0][0]}}`),
+			];
+			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
+			parts.push(
+				RawLatex("\\caption{"),
+				...figure.c[1][1][0].c,
+				RawLatex("}\n\\end{figure}"),
+			);
+			return Para(parts);
+		};
 
 		blocks = blocks.map(b => {
 			if (b.t === "Figure") {
@@ -149,13 +163,20 @@ const MetaList = (items) => ({
 			} else return b;
 		});
 
-		const render_figure_one = (figure) => Para([
-			RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
-			RawLatex(`\\label{${figure.c[0][0]}}`),
-			RawLatex("\\caption{"),
-			...figure.c[1][1][0].c,
-			RawLatex("}\n\\end{teaserfigure}"),
-		]);
+		const render_figure_one = (figure) => {
+			const alt = get_alt_text(figure);
+			const parts = [
+				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
+				RawLatex(`\\label{${figure.c[0][0]}}`),
+			];
+			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
+			parts.push(
+				RawLatex("\\caption{"),
+				...figure.c[1][1][0].c,
+				RawLatex("}\n\\end{teaserfigure}"),
+			);
+			return Para(parts);
+		};
 
 		const render_title = (title_para) => Para([
 			RawLatex("\\title{"),
@@ -202,6 +223,16 @@ const MetaList = (items) => ({
 			\\end{CCSXML}
 			\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}
 		`);
+		const render_copyright_stuff = () => RawLatexPara(`
+		\\copyrightyear{2026}
+		\\acmYear{2026}
+		\\setcopyright{cc}
+		\\setcctype{by-nc-nd}
+		\\acmConference[CHI '26]{Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems}{April 13--17, 2026}{Barcelona, Spain}
+		\\acmBooktitle{Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems (CHI '26), April 13--17, 2026, Barcelona, Spain}
+		\\acmDOI{10.1145/3772318.3791706}
+		\\acmISBN{979-8-4007-2278-3/2026/04}
+		`);
 
 		// TODO move these to document metadata
 		const authors = ["Lukas Rambold", "Robert Kovacs", "Min Deng", "Antonius Naumann", "Konrad Gerlach", "Horatio Hamkins", "Helena Lendowski", "Chiao Fang", "Shohei Katakura", "Conrad Lempert", "Muhammad Abdullah", "Patrick Baudisch"];
@@ -213,11 +244,15 @@ const MetaList = (items) => ({
 \\usepackage{graphicx}
 \\usepackage[utf8x]{inputenc}
 \\usepackage{float}      % for h option if needed
+\\usepackage{algorithm}
+\\usepackage{algpseudocode}
+\\usepackage{dblfloatfix}
+\\usepackage{wasysym}
 			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),
 			render_ccs(),
-			// TODO parse proper keywords from document put them into meta block
+			render_copyright_stuff(),
 			render_keywords(doc.meta.keywords.c.map(item => item.c)),
 			render_figure_one(figure_one),
 			...authors.map(render_author),

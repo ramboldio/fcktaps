@@ -188,6 +188,8 @@ const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
 
 (async () => {
 	readStdin().then(async (stdin_content) => {
+		// TODO write alt-text properly into document
+
 		const doc = JSON.parse(stdin_content);
 		
 		let blocks = doc.blocks;
@@ -224,7 +226,7 @@ const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
 
 					const caption = trim_figure_prefix(get_first_child(next_block));
 					// const image = Image(convert_to_pdf_image_path(get_image_path(image_block)) );
-					const image = Image(get_image_path(image_block));
+					const image = Image(get_image_path(image_block), "", image_block.c[1]);
 					const ref_id = get_first_child(next_block).c.map(get_anchor_ref).find(res => res !== undefined);
 					
 					return Figure(caption, image, ref_id);
@@ -254,6 +256,10 @@ const get_inline_block_children = (block) => block.t === "Para" ? block.c : [];
 		// TODO Algorithm support
 
 		// TODO math syntax support
+
+		// TODO unicode support
+
+		// TODO: support for highlights and pointy brackets (-> emit warning)
 
 		doc.blocks = blocks;
 		return doc;
