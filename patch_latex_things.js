@@ -248,6 +248,7 @@ const MetaList = (items) => ({
 \\usepackage{algpseudocode}
 \\usepackage{dblfloatfix}
 \\usepackage{wasysym}
+\\begin{document}
 			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),
@@ -258,7 +259,6 @@ const MetaList = (items) => ({
 			...authors.map(render_author),
 			render_author_short_handle(author_short_handle),
 			RawLatexPara(`
-\\begin{document}
 \\maketitle`),
 			...blocks,
 			render_acknoledgements(doc.meta.acknoledgements),
