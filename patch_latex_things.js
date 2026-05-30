@@ -27,11 +27,11 @@ const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
 
 const mapTree = (node, fn) => {
 	if (node.t === undefined) throw new Error("not a block");
-	if (node.t === "Para") {
+	if (node.t === "Para" || node.t === "Plain") {
 		return fn({ ...node, c: node.c.map(b => mapTree(b, fn)) });
 	} else if (node.t === "Figure") {
 			const figure = ({ ...node });
-			figure.c[1] = figure.c[1].map(list => list.map(b => mapTree(b, fn)));
+			figure.c[1] = figure.c[1].map(list => list ? list.map(b => mapTree(b, fn)) : list);
 			figure.c[2] = figure.c[2].map(b => mapTree(b, fn));
 			return fn(figure);
 	} else if (["Strong", "Emph"].includes(node.t)) {

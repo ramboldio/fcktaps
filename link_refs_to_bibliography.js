@@ -35,11 +35,11 @@ const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
 
 const mapTree = (node, fn) => {
 	if (node.t === undefined) throw new Error("not a block");
-	if (node.t === "Para") {
+	if (node.t === "Para" || node.t === "Plain") {
 		return fn({ ...node, c: node.c.map(b => mapTree(b, fn)) });
 	} else if (node.t === "Figure") {
 			const figure = ({ ...node });
-			figure.c[1] = figure.c[1].map(list => list.map(b => mapTree(b, fn)));
+			figure.c[1] = figure.c[1].map(list => list ? list.map(b => mapTree(b, fn)) : list);
 			figure.c[2] = figure.c[2].map(b => mapTree(b, fn));
 			return fn(figure);
 	} else if (["Strong", "Emph"].includes(node.t)) {
@@ -113,25 +113,25 @@ const convert_link_to_cite = (inline_block, mapping) => {
 		const doc = JSON.parse(stdin_content);
 		let blocks = doc.blocks;
 
-		debugger
-		// Extract bibliography entries from ordered list
-		const bib_entries = blocks
-			.filter(b => b.t === "OrderedList")
-			.map(b => b.c[1])
-			.filter(b => get_custom_style(b) !== styles.bibliography_entry)
-			.flat(2)
-			.map(get_first_child);
+		// Extract bibliography entries from ordered list.
+		// Use a deep recursive search to find all anchor IDs, regardless of nesting.
+		const deep_get_anchors = (node) => {
+			if (!node || typeof node !== "object") return [];
+			if (Array.isArray(node)) return node.flatMap(deep_get_anchors);
+			if (node.t === "Span" && node.c[0][1] && node.c[0][1][0] === "anchor") return [node.c[0][0]];
+			if (node.c) return deep_get_anchors(node.c);
+			return [];
+		};
 
-		// Get Word's internal anchor IDs
-		const word_keys = bib_entries
-			.map(b => b.c.map(get_anchor_ref)
-			.filter(b => b))
-			.flat(2); 
+		const olist = blocks.find(b => b.t === "OrderedList");
+		const word_keys = olist
+			? olist.c[1].flatMap(item => deep_get_anchors(item))
+			: [];
 
 		// Map Word anchor IDs to bibtex keys using CSV (1-indexed position)
 		if (word_keys.length !== refKeys.length) {
-			console.error("length of keys entries in the csv and the word file don't match");
-			exit(1);
+			console.error(`length mismatch: ${word_keys.length} anchors in doc vs ${refKeys.length} keys in CSV`);
+			process.exit(1);
 		}
 
 		const mapping = Object.fromEntries(word_keys.map((key, i) => [key, refKeys[i]]));

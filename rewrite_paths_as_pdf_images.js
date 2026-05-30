@@ -15,11 +15,11 @@ const readStdin = () => {
 
 const mapTree = (node, fn) => {
 	if (node.t === undefined) throw new Error("not a block");
-	if (node.t === "Para") {
+	if (node.t === "Para" || node.t === "Plain") {
 		return fn({ ...node, c: node.c.map(b => mapTree(b, fn)) });
 	} else if (node.t === "Figure") {
 			const figure = ({ ...node });
-			figure.c[1] = figure.c[1].map(list => list.map(b => mapTree(b, fn)));
+			figure.c[1] = figure.c[1].map(list => list ? list.map(b => mapTree(b, fn)) : list);
 			figure.c[2] = figure.c[2].map(b => mapTree(b, fn));
 			return fn(figure);
 	} else if (["Strong", "Emph"].includes(node.t)) {
@@ -51,17 +51,22 @@ const Figure = (caption, image, ref_id) => ({
 		[Para([image])]
 	]});
 
+// Map source extensions to the converted extension produced by convert_figures.py
+const convertedExt = { ".svg": ".pdf", ".emf": ".png", ".EMF": ".png" };
+
 (async () => {
 	readStdin()
 	  .then(async (stdin_content) => {
 	  	const doc = JSON.parse(stdin_content);
-	  	let image_index = 1;
- 			doc.block = doc.blocks.map(b => mapTree(b, b => {
+ 			doc.blocks = doc.blocks.map(b => mapTree(b, b => {
  				if (b.t === "Image") {
- 					const image_path = b.c[2][0];
-					const new_path = `./figures_pdf/Artboard ${image_index}.pdf`;
-					image_index = image_index + 1;
-					b.c[2][0] = new_path;
+ 					const p = b.c[2][0];
+					const ext = p.match(/(\.[^.]+)$/)?.[1] ?? "";
+					if (convertedExt[ext]) {
+						b = { ...b };
+						b.c = [...b.c];
+						b.c[2] = [p.slice(0, -ext.length) + convertedExt[ext], b.c[2][1]];
+					}
  				}
  				return b;
  			}));
