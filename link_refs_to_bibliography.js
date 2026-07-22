@@ -14,7 +14,7 @@ const readStdin = () => {
   });
 }
 
-// Parse reference_keys.csv: "number, bibtex_key" format
+// Parse reference_keys.csv: one BibTeX key per Word bibliography entry.
 function parseReferenceKeys(csvPath) {
   const content = fs.readFileSync(csvPath, "utf8");
   const mapping = {};
@@ -124,17 +124,20 @@ const convert_link_to_cite = (inline_block, mapping) => {
 		};
 
 		const olist = blocks.find(b => b.t === "OrderedList");
-		const word_keys = olist
-			? olist.c[1].flatMap(item => deep_get_anchors(item))
+		const word_entries = olist
+			? olist.c[1].map(item => deep_get_anchors(item))
 			: [];
 
-		// Map Word anchor IDs to bibtex keys using CSV (1-indexed position)
-		if (word_keys.length !== refKeys.length) {
-			console.error(`length mismatch: ${word_keys.length} anchors in doc vs ${refKeys.length} keys in CSV`);
+		// One bibliography entry can carry multiple Word anchor IDs when Word has
+		// merged duplicate references. All of those anchors share one CSV key.
+		if (word_entries.length !== refKeys.length) {
+			console.error(`length mismatch: ${word_entries.length} bibliography entries in doc vs ${refKeys.length} keys in CSV`);
 			process.exit(1);
 		}
 
-		const mapping = Object.fromEntries(word_keys.map((key, i) => [key, refKeys[i]]));
+		const mapping = Object.fromEntries(
+			word_entries.flatMap((anchors, i) => anchors.map(anchor => [anchor, refKeys[i]]))
+		);
 
 		// Remove bibliography ordered lists
 		blocks = blocks.filter(b => b.t !== "OrderedList");

@@ -180,6 +180,27 @@ const authorNames = field => field.split(/\s+and\s+/i).map(raw => {
   return [...given, family].join(" ");
 }).filter(Boolean);
 
+const initialsOnlyAuthors = field => field.split(/\s+and\s+/i).flatMap(raw => {
+  if (/^\s*\{\{/.test(raw)) return [];
+
+  const clean = displayBibtex(raw);
+  const commaParts = clean.split(",").map(part => part.trim()).filter(Boolean);
+  const words = clean.split(/\s+/).filter(Boolean);
+  const givenNames = commaParts.length > 1
+    ? commaParts[commaParts.length - 1]
+    : words.slice(0, -1).join(" ");
+  const initial = part => /^\p{L}$/u.test(part) || /^(?:\p{L}\.)+$/u.test(part);
+  const givenNameParts = givenNames
+    .split(/[\s~]+/)
+    .flatMap(part => part.split(/[-‐‑‒–—]/u))
+    .filter(Boolean);
+  const initialsOnly = givenNameParts.length > 0 && givenNameParts.every(initial);
+
+  if (!initialsOnly) return [];
+  if (commaParts.length <= 1) return [clean];
+  return [`${givenNames} ${commaParts[0]}`];
+});
+
 const significantTokens = value => normalize(value).split(" ").filter(token => token.length > 1);
 
 const levenshtein = (a, b) => {
@@ -231,29 +252,25 @@ const validate = doc => {
   if (!fs.existsSync(bibPath)) { warning("missing zotero.bib"); return; }
 
   const keys = fs.readFileSync(keyPath, "utf8").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const duplicateKeys = [...new Set(keys.filter((key, index) => keys.indexOf(key) !== index))];
+  if (duplicateKeys.length) {
+    warning(`reference_keys.csv contains duplicate keys: ${duplicateKeys.join(", ")}`);
+  }
   const bibEntries = parseBibtex(fs.readFileSync(bibPath, "utf8"));
   const bibliography = doc.blocks.find(block => block.t === "OrderedList");
   if (!bibliography) { warning("Word bibliography list is missing"); return; }
 
   const anchorToKey = new Map();
-  let keyOffset = 0;
   bibliography.c[1].forEach((item, index) => {
     const itemAnchors = anchors(item);
-    const itemKeys = keys.slice(keyOffset, keyOffset + itemAnchors.length);
-    keyOffset += itemAnchors.length;
-    itemAnchors.forEach((anchor, i) => anchorToKey.set(anchor, itemKeys[i]));
+    const key = keys[index];
+    itemAnchors.forEach(anchor => anchorToKey.set(anchor, key));
 
-    const uniqueKeys = [...new Set(itemKeys)];
-    if (!itemAnchors.length || !uniqueKeys.length) {
+    if (!itemAnchors.length || !key) {
       warning(`Word reference ${index + 1} has no reference_keys.csv mapping`);
       return;
     }
-    if (uniqueKeys.length > 1) {
-      warning(`Word reference ${index + 1} maps to conflicting keys: ${uniqueKeys.join(", ")}`);
-      return;
-    }
 
-    const key = uniqueKeys[0];
     const entry = bibEntries.get(key);
     if (!entry) {
       warning(`Word reference ${index + 1} maps to missing BibTeX entry "${key}"`);
@@ -271,6 +288,14 @@ const validate = doc => {
       );
       if (missingAuthors.length) {
         warning(`reference ${index + 1} [${key}] is missing author(s) from the Word entry: ${missingAuthors.join("; ")}`);
+      }
+
+      const initialsOnly = initialsOnlyAuthors(entry.fields.author);
+      if (initialsOnly.length) {
+        warning(
+          `reference ${index + 1} [${key}] has BibTeX author name(s) containing only initials; ` +
+          `ACM style requires at least one given name to be spelled out: ${initialsOnly.join("; ")}`
+        );
       }
     }
 
@@ -295,8 +320,8 @@ const validate = doc => {
     checkDestinations(index + 1, key, wordText, entry, warning);
   });
 
-  if (keyOffset !== keys.length) {
-    warning(`reference_keys.csv has ${keys.length} lines but the Word bibliography has ${keyOffset} anchors`);
+  if (bibliography.c[1].length !== keys.length) {
+    warning(`reference_keys.csv has ${keys.length} lines but the Word bibliography has ${bibliography.c[1].length} entries`);
   }
 
   const visit = node => {

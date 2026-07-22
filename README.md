@@ -66,11 +66,16 @@ single-column figures, ±0.05-inch tolerance). Figure height is not validated.
 Before rewriting Word citations, the build compares every SIGCHI-formatted
 Word bibliography item with its `reference_keys.csv` mapping and corresponding
 `zotero.bib` entry. Warnings report missing mappings or BibTeX entries, missing
-authors, title and year mismatches, DOI or link changes, unmapped citations, and
-unused BibTeX records. DOI comparison ignores equivalent `doi.org` and
-`dx.doi.org` spellings; ordinary links ignore scheme, `www.`, and a trailing
-slash. Formatting-only differences in punctuation, capitalization, accents,
-and common LaTeX commands are ignored. These checks are advisory and do not
-stop conversion. All fcktaps warnings are buffered during conversion and shown
-after the LaTeX output as `WARNING -- ...` lines, with only `WARNING` rendered
-in bold bright yellow.
+authors, author names represented only by initials, title and year mismatches,
+DOI or link changes, unmapped citations, and unused BibTeX records. Initials are
+accepted when at least one given name is spelled out, as in `R. Ian Campbell`.
+DOI comparison ignores equivalent `doi.org` and `dx.doi.org` spellings; ordinary
+links ignore scheme, `www.`, and a trailing slash. Formatting-only differences
+in punctuation, capitalization, accents, and common LaTeX commands are ignored.
+These checks are advisory and do not stop conversion. All fcktaps warnings are
+buffered during conversion and shown after the LaTeX output as `WARNING -- ...`
+lines, with only `WARNING` rendered in bold bright yellow.
+
+`reference_keys.csv` contains one BibTeX key per Word bibliography entry, in
+document order. If Word assigns multiple anchors to a merged duplicate entry,
+the converter maps every anchor to that one key; the CSV must not repeat it.
