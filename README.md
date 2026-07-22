@@ -42,8 +42,8 @@ The default target converts the `.docx` to Pandoc JSON, extracts and converts
 figures, applies the fcktaps filters, emits ACM LaTeX, and builds `paper.pdf`.
 Use `make clean` from either the toolkit or paper directory to remove generated
 files. Cleaning removes only `figures/media`; it preserves `figures/override`
-and its README. If the paper directory is not next to this repository, also
-pass the checkout path, for example
+and the paper-local `frontmatter` directory. If the paper directory is not
+next to this repository, also pass the checkout path, for example
 `FCKTAPS=/path/to/fcktaps`.
 
 The build warns when the paper title or a section heading is not in title case.
@@ -80,6 +80,19 @@ figures within the subsection where they occur.
 The build warns for every non-PDF override and for artwork that differs from
 the `acmart` publication width (7.0 inches for the teaser, 3.33 inches for
 single-column figures, ±0.05-inch tolerance). Figure height is not validated.
+
+## Paper-specific frontmatter
+
+Paper-specific LaTeX lives in the paper directory under `frontmatter/`:
+
+- `authors.tex` contains authors, affiliations, and the short-author label.
+- `ccs.tex` contains the ACM Computing Classification System metadata.
+- `rights.tex` contains the ACM rights, conference, DOI, and ISBN commands.
+
+The converter reads these fragments on every build in the same way that it
+reads persistent figure overrides, and changes to any fragment trigger a
+rebuild of the generated LaTeX. `make clean` never removes them. Set
+`FRONTMATTER_DIR` to use a different paper-local directory.
 
 ## Reference validation
 
