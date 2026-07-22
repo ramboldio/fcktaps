@@ -4,9 +4,9 @@ FIGURE_OVERRIDES ?= figures/override
 OVERRIDE_FILES := $(wildcard $(FIGURE_OVERRIDES)/*)
 WARNINGS_FILE ?= .fcktaps-warnings
 
-.PHONY: all clean check-input paper_indexed.json figure-overrides
+.PHONY: all clean check-input check-packages paper_indexed.json figure-overrides
 
-all: paper.pdf
+all: check-packages paper.pdf
 
 check-input:
 	@test -n "$(DOCX)" || { \
@@ -52,6 +52,10 @@ paper_unpatched.tex: paper_filtered.json
 
 paper.tex: paper_unpatched.tex
 	cp $< $@
+
+check-packages: paper.tex
+	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+		python3 "$(FCKTAPS)/check_latex_packages.py" paper.tex
 
 paper.pdf: paper.tex zotero.bib
 	-pdflatex -interaction=nonstopmode paper.tex

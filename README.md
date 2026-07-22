@@ -51,6 +51,10 @@ Structural labels such as `ACKNOWLEDGMENTS` and `REFERENCES` are excluded, and
 technical acronyms and digit-containing names such as `SVG`, `UIST`, and `5DOF`
 are preserved.
 
+The generated LaTeX is also checked against ACM's TAPS accepted-package list.
+The warning summary contains one warning for each explicitly loaded
+`\usepackage` or `\RequirePackage` package that is not accepted.
+
 Courier New text using Word's `code`, `In-text code`, or `Inline code`
 character style is converted to ACM SIGCHI inline code. Each affected text
 segment is reported by default as a `DEBUG --` message, with only `DEBUG`
