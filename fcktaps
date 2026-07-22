@@ -4,6 +4,7 @@
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -30,11 +31,49 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="fcktaps",
         description="Convert a Word manuscript to ACM TAPS-compatible LaTeX and PDF.",
+        epilog="Run 'fcktaps init [PATH]' to create a new paper directory.",
     )
     result.add_argument("-V", "--verbose", action="store_true", help="show the complete Pandoc, BibTeX, and LaTeX output")
     result.add_argument("--paper-dir", metavar="PATH", help="paper working directory (default: ../paper)")
     result.add_argument("document", metavar="DOCUMENT.docx", help="Word manuscript to process")
     return result
+
+
+def init_parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="fcktaps init",
+        description="Create a new paper directory from the bundled template.",
+    )
+    result.add_argument(
+        "paper_dir",
+        nargs="?",
+        metavar="PATH",
+        help="directory to create (default: ../paper)",
+    )
+    return result
+
+
+def init_paper_dir(arguments: list[str]) -> None:
+    argument_parser = init_parser()
+    args = argument_parser.parse_args(arguments)
+    tool_dir = Path(__file__).resolve().parent
+    template_dir = tool_dir / "Paper Folder TEMPLATE"
+    paper_dir = (
+        Path(args.paper_dir).expanduser().resolve()
+        if args.paper_dir
+        else (tool_dir.parent / "paper").resolve()
+    )
+
+    if paper_dir.exists():
+        argument_parser.error(f"destination already exists: {paper_dir}")
+
+    try:
+        paper_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(template_dir, paper_dir)
+    except OSError as error:
+        argument_parser.error(f"could not create {paper_dir}: {error}")
+
+    print(f"Created paper directory: {paper_dir}")
 
 
 def figure_map(tex_path: Path) -> tuple[dict[int, int], int | None]:
@@ -233,6 +272,10 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["init"]:
+        init_paper_dir(sys.argv[2:])
+        return
+
     args = parser().parse_args()
     tool_dir = Path(__file__).resolve().parent
     document = Path(args.document).expanduser().resolve()
