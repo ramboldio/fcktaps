@@ -46,6 +46,11 @@ and its README. If the paper directory is not next to this repository, also
 pass the checkout path, for example
 `FCKTAPS=/path/to/fcktaps`.
 
+The build warns when the paper title or a section heading is not in title case.
+Structural labels such as `ACKNOWLEDGMENTS` and `REFERENCES` are excluded, and
+technical acronyms and digit-containing names such as `SVG`, `UIST`, and `5DOF`
+are preserved.
+
 ## Figure overrides
 
 Persistent replacements live in `paper/figures/override` and use names such as

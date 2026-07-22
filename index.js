@@ -6,6 +6,21 @@ const path = require("path");
 const FIGURE_OVERRIDE_PATTERN =
   /^figure([1-9]\d*)--[a-z0-9]+(?:-[a-z0-9]+)*(\.[A-Za-z0-9]+)$/;
 
+const TITLE_CASE_MINOR_WORDS = new Set([
+  "a", "an", "and", "as", "at", "but", "by", "for", "from", "if", "in",
+  "into", "is", "nor", "of", "off", "on", "onto", "or", "per", "so", "the",
+  "to", "up", "via", "vs", "w", "with", "yet",
+]);
+const TITLE_CASE_ACRONYMS = new Set([
+  "2D", "3D", "5DOF", "ACM", "AI", "API", "AR", "CAD", "CAM", "CHI", "CNC",
+  "CSS", "DOF", "FDM", "GPU", "GUI", "HCI", "HTML", "IEEE", "NIR", "PDF",
+  "SIGCHI", "SLA", "SLS", "SVG", "TAPS", "UI", "UIST", "URL", "UV", "UX",
+  "VIS", "VR", "XR",
+]);
+const STRUCTURAL_HEADINGS = new Set([
+  "acknowledgments", "acknowledgements", "author keywords", "ccs concepts", "references",
+]);
+
 const readStdin = () => new Promise((resolve) => {
   let data = "";
   process.stdin.setEncoding("utf8");
@@ -29,6 +44,64 @@ const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
   if (b.t === "Span") return stringify_inlines(b.c[1]);
   return "";
 }).join("");
+
+const metadata_text = meta => {
+  if (!meta) return "";
+  if (meta.t === "MetaString") return meta.c;
+  if (meta.t === "MetaInlines") return stringify_inlines(meta.c);
+  return "";
+};
+
+const is_title_case = text => {
+  const wordPattern = /[\p{L}\p{N}]+(?:[’'][\p{L}\p{N}]+)*(?:[-‐‑‒–—][\p{L}\p{N}]+)*/gu;
+  const matches = [...text.matchAll(wordPattern)];
+  const words = matches.map(match => match[0]);
+  if (!words.length) return true;
+
+  const alphabeticWords = words.filter(word => /\p{L}/u.test(word));
+  const allCapsHeading = alphabeticWords.length > 1 && alphabeticWords.every(word => {
+    const letters = word.replace(/[^\p{L}]/gu, "");
+    return letters === letters.toLocaleUpperCase() && letters !== letters.toLocaleLowerCase();
+  });
+  if (allCapsHeading && !alphabeticWords.every(word => TITLE_CASE_ACRONYMS.has(word))) return false;
+
+  return words.every((word, wordIndex) => word.split(/[-‐‑‒–—]/u).every((part, partIndex) => {
+    if (!/\p{L}/u.test(part) || TITLE_CASE_ACRONYMS.has(part)) return true;
+
+    const letters = part.replace(/[^\p{L}]/gu, "");
+    const allCaps = letters.length > 3 &&
+      letters === letters.toLocaleUpperCase() && letters !== letters.toLocaleLowerCase();
+    if (allCaps) return false;
+
+    const firstLetter = part.match(/\p{L}/u)?.[0] || "";
+    const startsLowercase = firstLetter === firstLetter.toLocaleLowerCase() &&
+      firstLetter !== firstLetter.toLocaleUpperCase();
+    if (!startsLowercase) return true;
+    if (/\p{Ll}.*\p{Lu}/u.test(part)) return true;
+
+    const separator = wordIndex === 0 ? "" : text.slice(
+      matches[wordIndex - 1].index + matches[wordIndex - 1][0].length,
+      matches[wordIndex].index,
+    );
+    const isFirst = partIndex === 0 && (wordIndex === 0 || /[:.!?]\s*$/.test(separator));
+    const isLast = wordIndex === words.length - 1 && partIndex === word.split(/[-‐‑‒–—]/u).length - 1;
+    return !isFirst && !isLast && TITLE_CASE_MINOR_WORDS.has(part.toLocaleLowerCase());
+  }));
+};
+
+const warn_about_title_case = (doc, blocks) => {
+  const title = metadata_text(doc.meta.title).replace(/\s+/g, " ").trim();
+  if (title && !is_title_case(title)) {
+    warn(`paper title is not in title case: "${title}"`);
+  }
+
+  blocks.forEach(block => {
+    if (block.t !== "Header") return;
+    const heading = stringify_inlines(block.c[2]).replace(/\s+/g, " ").trim();
+    if (!heading || STRUCTURAL_HEADINGS.has(heading.toLocaleLowerCase())) return;
+    if (!is_title_case(heading)) warn(`heading is not in title case: "${heading}"`);
+  });
+};
 
 const mapTree = (node, fn) => {
   if (node.t === undefined) throw new Error("not a block");
@@ -371,6 +444,8 @@ const extract_uist = (doc, blocks) => {
   blocks = format === "uist"
     ? extract_uist(doc, blocks)
     : extract_chi(doc, blocks);
+
+  warn_about_title_case(doc, blocks);
 
   // A Word figure may contain several embedded images. TAPS figures must use
   // one final artwork file, so retain only the first image and report it.
