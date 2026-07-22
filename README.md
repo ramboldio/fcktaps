@@ -10,3 +10,67 @@ It automates the tedious steps required for preparing a submission-ready LaTeX p
 - node
 - make
 - pdflatex
+
+## Usage
+
+The default layout expects the working paper directory at `../paper`, containing
+that paper's `zotero.bib` and `reference_keys.csv`. From the `fcktaps` repository
+directory, pass the Word document to the `fcktaps` command:
+
+```sh
+./fcktaps "../131 2026-Naumann-UIST26-five axis laser cutting AS SUBMITTED TO UIST.docx"
+```
+
+The default display hides the verbose LaTeX transcript behind a spinner and
+then forwards fcktaps and ACM class warnings in the warning summary. To stream
+the complete Pandoc, BibTeX, and LaTeX output, use `-V` or `--verbose`:
+
+Repeated ACM missing-description messages are consolidated and mapped from
+generated LaTeX line numbers back to publication figure numbers.
+
+```sh
+./fcktaps --verbose "../131 2026-Naumann-UIST26-five axis laser cutting AS SUBMITTED TO UIST.docx"
+```
+
+For a paper directory elsewhere, pass it separately:
+
+```sh
+./fcktaps --paper-dir "/path/to/paper-directory" "/path/to/manuscript.docx"
+```
+
+The default target converts the `.docx` to Pandoc JSON, extracts and converts
+figures, applies the fcktaps filters, emits ACM LaTeX, and builds `paper.pdf`.
+Use `make clean` from either the toolkit or paper directory to remove generated
+files. Cleaning removes only `figures/media`; it preserves `figures/override`
+and its README. If the paper directory is not next to this repository, also
+pass the checkout path, for example
+`FCKTAPS=/path/to/fcktaps`.
+
+## Figure overrides
+
+Persistent replacements live in `paper/figures/override` and use names such as
+`figure5--calibration-patterns.pdf`. On every build, the portion before `--`
+maps the readable override name to the publication figure number and the
+generated LaTeX prefers the override PDF. `make clean` preserves this directory.
+
+Each LaTeX figure contains exactly one artwork file. If a Word figure contains
+multiple embedded images, the build warns and selects its first image; it never
+creates a multi-image LaTeX figure.
+
+The build warns for every non-PDF override and for artwork that differs from
+the `acmart` publication width (7.0 inches for the teaser, 3.33 inches for
+single-column figures, ±0.05-inch tolerance). Figure height is not validated.
+
+## Reference validation
+
+Before rewriting Word citations, the build compares every SIGCHI-formatted
+Word bibliography item with its `reference_keys.csv` mapping and corresponding
+`zotero.bib` entry. Warnings report missing mappings or BibTeX entries, missing
+authors, title and year mismatches, DOI or link changes, unmapped citations, and
+unused BibTeX records. DOI comparison ignores equivalent `doi.org` and
+`dx.doi.org` spellings; ordinary links ignore scheme, `www.`, and a trailing
+slash. Formatting-only differences in punctuation, capitalization, accents,
+and common LaTeX commands are ignored. These checks are advisory and do not
+stop conversion. All fcktaps warnings are buffered during conversion and shown
+after the LaTeX output as `WARNING -- ...` lines, with only `WARNING` rendered
+in bold bright yellow.

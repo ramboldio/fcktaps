@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-
 // Read all stdin
 const readStdin = () => {
   return new Promise((resolve) => {
@@ -135,23 +133,53 @@ const MetaList = (items) => ({
 		const figure_one = blocks[figure_one_index];
 		blocks = blocks.filter((_, i) => i !== figure_one_index);
 
+		const get_figure_image = (figure) => {
+			if (!figure) return null;
+			const block = figure.c[2][0];
+			if (block.t === "Para" || block.t === "Plain") {
+				return block.c.find(b => b.t === "Image") || null;
+			}
+			return block.t === "Image" ? block : null;
+		};
+
 		const get_alt_text = (figure) => {
-			const image = figure.c[2][0].c[0];
+			const image = get_figure_image(figure);
+			if (!image) return "";
 			const alt_inlines = image.c[1] || [];
 			// TODO make sure that this is not handled here, but in pandoc, so e.g. \% etc gets exited
 			return stringify_inlines(alt_inlines);
 		};
 
+		const get_caption_inlines = (figure) => {
+			const caption_block = figure.c[1][1][0];
+			if (!caption_block) return [];
+
+			let inlines = [];
+			if (caption_block.t === "Para" || caption_block.t === "Plain") {
+				inlines = caption_block.c;
+			} else if (caption_block.t === "Div") {
+				const inner = caption_block.c[1][0];
+				if (inner && (inner.t === "Para" || inner.t === "Plain")) inlines = inner.c;
+			}
+
+			while (inlines.length > 0 &&
+				((inlines[0].t === "Str" && inlines[0].c === ":") || inlines[0].t === "Space")) {
+				inlines = inlines.slice(1);
+			}
+			return inlines;
+		};
+
 		const render_figure = (figure) => {
 			const alt = get_alt_text(figure);
+			const image = get_figure_image(figure);
 			const parts = [
-				RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
+				RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
 				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
 			parts.push(
 				RawLatex("\\caption{"),
-				...figure.c[1][1][0].c,
+				...get_caption_inlines(figure),
 				RawLatex("}\n\\end{figure}"),
 			);
 			return Para(parts);
@@ -165,14 +193,15 @@ const MetaList = (items) => ({
 
 		const render_figure_one = (figure) => {
 			const alt = get_alt_text(figure);
+			const image = get_figure_image(figure);
 			const parts = [
-				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
+				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\textwidth,height=0.25\\textheight,keepaspectratio]{${image.c[2][0]}}`),
 				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
 			parts.push(
 				RawLatex("\\caption{"),
-				...figure.c[1][1][0].c,
+				...get_caption_inlines(figure),
 				RawLatex("}\n\\end{teaserfigure}"),
 			);
 			return Para(parts);
@@ -203,7 +232,7 @@ const MetaList = (items) => ({
 		const render_author = (author) => RawLatexPara(`
 			 \\author{${author}}
 				\\affiliation{
-					\\institution{Hasso-Plattner-Institute}
+					\\institution{Hasso Plattner Institute}
 					\\city{Potsdam}
 					\\country{Germany}
 				}`
@@ -211,43 +240,57 @@ const MetaList = (items) => ({
 
 		const render_author_short_handle = (author_short_handle) => RawLatexPara(`\\renewcommand{\\shortauthors}{${author_short_handle}}`);
 
-		const render_ccs = () => RawLatexPara(`
-			\\begin{CCSXML}
-			<ccs2012>
-			<concept>
-			<concept_id>10003120.10003121.10003129</concept_id>
-			<concept_desc>Human-centered computing~Interactive systems and tools</concept_desc>
-			<concept_significance>500</concept_significance>
-			</concept>
-			</ccs2012>
-			\\end{CCSXML}
-			\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}
-		`);
+		// acmart excludes CCSXML with the comment package, whose closing marker
+		// must start in column one. Explicit lines prevent source indentation
+		// from leaking into the generated LaTeX.
+		const render_ccs = () => RawLatexPara([
+			"\\begin{CCSXML}",
+			"<ccs2012>",
+			"<concept>",
+			"<concept_id>10003120.10003121.10003129</concept_id>",
+			"<concept_desc>Human-centered computing~Interactive systems and tools</concept_desc>",
+			"<concept_significance>500</concept_significance>",
+			"</concept>",
+			"</ccs2012>",
+			"\\end{CCSXML}",
+			"\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}",
+		].join("\n"));
 		const render_copyright_stuff = () => RawLatexPara(`
 		\\copyrightyear{2026}
 		\\acmYear{2026}
 		\\setcopyright{cc}
 		\\setcctype{by-nc-nd}
-		\\acmConference[CHI '26]{Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems}{April 13--17, 2026}{Barcelona, Spain}
-		\\acmBooktitle{Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems (CHI '26), April 13--17, 2026, Barcelona, Spain}
-		\\acmDOI{10.1145/3772318.3791706}
-		\\acmISBN{979-8-4007-2278-3/2026/04}
+		\\acmConference[UIST '26]{Proceedings of the 39th Annual ACM Symposium on User Interface Software and Technology}{October 2026}{Pittsburgh, PA, USA}
+		\\acmBooktitle{Proceedings of the 39th Annual ACM Symposium on User Interface Software and Technology (UIST '26)}
 		`);
 
-		// TODO move these to document metadata
-		const authors = ["Lukas Rambold", "Robert Kovacs", "Min Deng", "Antonius Naumann", "Konrad Gerlach", "Horatio Hamkins", "Helena Lendowski", "Chiao Fang", "Shohei Katakura", "Conrad Lempert", "Muhammad Abdullah", "Patrick Baudisch"];
-		const author_short_handle = "Rambold et al."
+		const authors = [
+			"Antonius Naumann", "Chiao Fang", "Lukas Rambold", "Martin Taraz",
+			"Tom Haas", "Jonas Baron", "Katharina Posegga", "Edgar Bennemann",
+			"Corvin Kögler", "Leonard Del Federico", "Julian Arnold", "Gustav Ahlgrimm",
+			"Shohei Katakura", "Muhammad Abdullah", "Robert Kovacs", "Patrick Baudisch"
+		];
+		const author_short_handle = "Naumann et al.";
 
 		blocks = [
 			RawLatexPara(`
 \\documentclass[sigconf,screen]{acmart}
 \\usepackage{graphicx}
-\\usepackage[utf8x]{inputenc}
-\\usepackage{float}      % for h option if needed
+\\usepackage[utf8]{inputenc}
+\\usepackage[T1]{fontenc}
+\\usepackage{float}
 \\usepackage{algorithm}
 \\usepackage{algpseudocode}
 \\usepackage{dblfloatfix}
 \\usepackage{wasysym}
+\\usepackage{url}
+\\usepackage{newunicodechar}
+\\newunicodechar{₂}{\\ensuremath{_2}}
+\\newunicodechar{μ}{\\ensuremath{\\mu}}
+\\newunicodechar{′}{\\ensuremath{^\\prime}}
+\\newunicodechar{−}{--}
+\\newunicodechar{×}{\\texttimes}
+\\newunicodechar{°}{\\textdegree}
 \\begin{document}
 			`),
 			render_title(doc.meta.title),
@@ -255,7 +298,7 @@ const MetaList = (items) => ({
 			render_ccs(),
 			render_copyright_stuff(),
 			render_keywords(doc.meta.keywords.c.map(item => item.c)),
-			render_figure_one(figure_one),
+			...(figure_one ? [render_figure_one(figure_one)] : []),
 			...authors.map(render_author),
 			render_author_short_handle(author_short_handle),
 			RawLatexPara(`

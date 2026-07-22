@@ -59,13 +59,19 @@ const convertedExt = { ".svg": ".pdf", ".emf": ".png", ".EMF": ".png" };
 	  .then(async (stdin_content) => {
 	  	const doc = JSON.parse(stdin_content);
  			doc.blocks = doc.blocks.map(b => mapTree(b, b => {
- 				if (b.t === "Image") {
- 					const p = b.c[2][0];
+				if (b.t === "Image") {
+					const p = b.c[2][0];
 					const ext = p.match(/(\.[^.]+)$/)?.[1] ?? "";
-					if (convertedExt[ext]) {
+					const pdfPath = p.slice(0, -ext.length) + ".pdf";
+					const replacement = fs.existsSync(pdfPath)
+						? pdfPath
+						: convertedExt[ext]
+							? p.slice(0, -ext.length) + convertedExt[ext]
+							: null;
+					if (replacement) {
 						b = { ...b };
 						b.c = [...b.c];
-						b.c[2] = [p.slice(0, -ext.length) + convertedExt[ext], b.c[2][1]];
+						b.c[2] = [replacement, b.c[2][1]];
 					}
  				}
  				return b;

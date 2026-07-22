@@ -1,11 +1,22 @@
 #!/usr/bin/env node
 
+const fs = require("fs");
+
 const readStdin = () => new Promise((resolve) => {
   let data = "";
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", chunk => data += chunk);
   process.stdin.on("end", () => resolve(data));
 });
+
+const warn = (message) => {
+  const warningsFile = process.env.FCKTAPS_WARNINGS_FILE;
+  if (warningsFile) {
+    fs.appendFileSync(warningsFile, `${message}\n`, "utf8");
+  } else {
+    process.stderr.write(`WARNING -- ${message}\n`);
+  }
+};
 
 const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
   if (b.t === "Str") return b.c;
@@ -45,6 +56,17 @@ const get_custom_style = (block) => {
 const get_children = (block) => block.c[1];
 const get_first_child = (block) => get_children(block)[0];
 
+const get_images = (node, images = []) => {
+  if (Array.isArray(node)) {
+    node.forEach(child => get_images(child, images));
+    return images;
+  }
+  if (!node || typeof node !== "object") return images;
+  if (node.t === "Image") images.push(node);
+  Object.values(node).forEach(child => get_images(child, images));
+  return images;
+};
+
 const get_anchor_ref = (block) => {
   if (block.t === "Span" && block.c[0][1][0] === "anchor") return block.c[0][0];
   return undefined;
@@ -63,10 +85,35 @@ const Image = (path, ref_id = "", caption_inlines = []) => ({
   c: [[ref_id, [], [["width", "100%"]]], [...caption_inlines], [path, ""]]
 });
 
-const Figure = (caption, image, ref_id) => ({
+const Figure = (caption, images, ref_id) => ({
   t: "Figure",
-  c: [[ref_id, [], []], [[], [caption]], [Para([image])]]
+  c: [[ref_id, [], []], [[], [caption]], [Para(images)]]
 });
+
+const normalize_figures = (blocks) => {
+  let figureNumber = 0;
+  return blocks.map(block => {
+    if (block.t !== "Figure") return block;
+
+    figureNumber += 1;
+    const images = get_images(block);
+    if (images.length === 0) {
+      warn(`Figure ${figureNumber} contains no image.`);
+      return block;
+    }
+    if (images.length > 1) {
+      warn(
+        `Figure ${figureNumber} contains ${images.length} images; ` +
+        `using only the first image (${images[0].c[2][0]}) for LaTeX.`
+      );
+    }
+
+    return {
+      ...block,
+      c: [block.c[0], block.c[1], [Para([images[0]])]],
+    };
+  });
+};
 
 const Cite = (ref_id) => ({
   t: "Cite",
@@ -138,9 +185,8 @@ const extract_chi = (doc, blocks) => {
   let skip = false;
   blocks = blocks.map((block, i, arr) => {
     if (get_custom_style(block) === "Image") {
-      const image_block = get_first_child(block).c[0];
-      if (image_block.t !== "Image" || get_children(block).length !== 1)
-        throw new Error("Image style should only be applied to a single image");
+      const image_blocks = get_images(block);
+      if (image_blocks.length === 0) return block;
 
       const next_block = arr[i + 1];
       const next_text = next_block ? stringify_inlines(get_first_child(next_block).c) : "";
@@ -148,9 +194,11 @@ const extract_chi = (doc, blocks) => {
         skip = true;
         const caption_para = get_first_child(next_block);
         const caption = Para([...caption_para.c.slice(4)]); // strip "Figure N: "
-        const image = Image(image_block.c[2][0], "", image_block.c[1]);
+        const images = image_blocks.map(image_block =>
+          Image(image_block.c[2][0], "", image_block.c[1])
+        );
         const ref_id = caption_para.c.map(get_anchor_ref).find(r => r !== undefined);
-        return Figure(caption, image, ref_id);
+        return Figure(caption, images, ref_id);
       }
       return block;
     } else if (skip) {
@@ -218,8 +266,8 @@ const extract_uist = (doc, blocks) => {
   blocks = blocks.map((block, i, arr) => {
     const style = get_custom_style(block);
     if (style && (style === "Image" || style === "image")) {
-      const image_block = get_first_child(block).c[0];
-      if (image_block.t !== "Image") return block;
+      const image_blocks = get_images(block);
+      if (image_blocks.length === 0) return block;
 
       const next_block = arr[i + 1];
       if (next_block && get_custom_style(next_block) === "caption") {
@@ -230,10 +278,23 @@ const extract_uist = (doc, blocks) => {
                ((inlines[0].t === "Str" && inlines[0].c === ":") || inlines[0].t === "Space"))
           inlines = inlines.slice(1);
         const caption = Para(inlines);
-        const image = Image(image_block.c[2][0], "", image_block.c[1]);
+        const images = image_blocks.map(image_block =>
+          Image(image_block.c[2][0], "", image_block.c[1])
+        );
         const ref_id = get_first_child(next_block).c
           .map(get_anchor_ref).find(r => r !== undefined) || "";
-        return Figure(caption, image, ref_id);
+        return Figure(caption, images, ref_id);
+      }
+      if (next_block && next_block.t === "Figure") {
+        skip = true;
+        return {
+          ...next_block,
+          c: [
+            next_block.c[0],
+            next_block.c[1],
+            [Para([...image_blocks, ...get_images(next_block)])],
+          ],
+        };
       }
       return block;
     } else if (skip) {
@@ -272,6 +333,10 @@ const extract_uist = (doc, blocks) => {
   blocks = format === "uist"
     ? extract_uist(doc, blocks)
     : extract_chi(doc, blocks);
+
+  // A Word figure may contain several embedded images. TAPS figures must use
+  // one final artwork file, so retain only the first image and report it.
+  blocks = normalize_figures(blocks);
 
   // Flatten single-child Divs
   blocks = blocks.map(convert_div_to_para);

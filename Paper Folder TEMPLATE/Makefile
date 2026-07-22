@@ -1,41 +1,66 @@
-paper.json:
-	pandoc "../144 2026-Rambold-CHI26-AirForce with R&R comments.docx" \
-	--from=docx+styles --to=json --output paper.json \
-	--extract-media=figures \
+DOCX ?=
+FCKTAPS ?= $(if $(wildcard ../patch_latex_things.js),$(abspath ..),$(abspath ../fcktaps))
+FIGURE_OVERRIDES ?= figures/override
+OVERRIDE_FILES := $(wildcard $(FIGURE_OVERRIDES)/*)
+WARNINGS_FILE ?= .fcktaps-warnings
 
-paper_filtered.json: paper.json zotero.bib reference_keys.csv
-	pandoc -f json -t json -i paper.json -o paper_filtered.json \
-		--filter=/Users/lukasrambold/Projects/fcktaps/link_refs_to_bibliography.js \
-		--filter=/Users/lukasrambold/Projects/fcktaps/index.js \
-		--filter=/Users/lukasrambold/Projects/fcktaps/rewrite_paths_as_pdf_images.js \
- 		--filter=/Users/lukasrambold/Projects/fcktaps/patch_latex_things.js
+.PHONY: all clean check-input paper_indexed.json figure-overrides
+
+all: paper.pdf
+
+check-input:
+	@test -n "$(DOCX)" || { \
+		echo 'Usage: make DOCX="/path/to/manuscript.docx"' >&2; \
+		exit 2; \
+	}
+	@test -f "$(DOCX)" || { \
+		echo 'Document not found: $(DOCX)' >&2; \
+		exit 2; \
+	}
+
+paper.json: | check-input
+	pandoc "$(DOCX)" \
+		--from=docx+styles --to=json --output=$@ \
+		--extract-media=figures
+
+figures-converted: paper.json
+	python3 "$(FCKTAPS)/convert_figures.py" figures/media
+	@touch $@
+
+paper_indexed.json: paper.json figures-converted zotero.bib reference_keys.csv
+	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+		pandoc paper.json --from=json --to=json --output=$@ \
+		--filter="$(FCKTAPS)/validate_references.js" \
+		--filter="$(FCKTAPS)/link_refs_to_bibliography.js" \
+		--filter="$(FCKTAPS)/index.js"
+
+figure-overrides: paper_indexed.json $(OVERRIDE_FILES)
+	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+		python3 "$(FCKTAPS)/apply_figure_overrides.py" \
+		"$(FIGURE_OVERRIDES)" figures/media paper_indexed.json
+	@touch $@
+
+paper_filtered.json: paper_indexed.json figure-overrides
+	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+		pandoc paper_indexed.json --from=json --to=json --output=$@ \
+		--filter="$(FCKTAPS)/rewrite_paths_as_pdf_images.js" \
+		--filter="$(FCKTAPS)/patch_latex_things.js"
 
 paper_unpatched.tex: paper_filtered.json
-	pandoc paper_filtered.json \
-	--from=json --to=latex --natbib --output=paper_unpatched.tex
+	pandoc $< --from=json --to=latex --natbib --output=$@
 
-paper.tex: paper_unpatched.tex manual_changes.patch
-	patch paper_unpatched.tex -o paper.tex < manual_changes.patch
+paper.tex: paper_unpatched.tex
+	cp $< $@
 
-alt_text.txt: figures_pdf
-	./generate_alt_text.sh > alt_text.txt
-
-paper.pdf: paper.tex figures_pdf zotero.bib
+paper.pdf: paper.tex zotero.bib
 	-pdflatex -interaction=nonstopmode paper.tex
 	-bibtex paper
 	-pdflatex -interaction=nonstopmode paper.tex
 	pdflatex -interaction=nonstopmode paper.tex
 
-chi26-1416: paper.pdf paper.tex figures_pdf zotero.bib
-	mkdir chi26-1416
-	mkdir chi26-1416/pdf
-	cp paper.pdf chi26-1416/pdf/paper.pdf
-	mkdir chi26-1416/Source
-	cp paper.tex chi26-1416/Source
-	cp -r figures_pdf chi26-1416/Source
-	cp zotero.bib chi26-1416/Source
-
 clean:
-	rm paper.json paper_filtered.json paper.tex paper_unpatched.tex paper.pdf paper.bbl paper.blg paper.aux paper.log paper.out comment.cut
-	rm -rf chi26-1416
-	rm -rf figures
+	rm -f paper.json paper_indexed.json paper_filtered.json paper.tex paper_unpatched.tex paper.pdf
+	rm -f paper.bbl paper.blg paper.aux paper.log paper.out comment.cut figures-converted figure-overrides
+	# Persistent overrides and their README live beside, never inside, media.
+	rm -rf figures/media
+	python3 "$(FCKTAPS)/report_warnings.py" clear "$(WARNINGS_FILE)"

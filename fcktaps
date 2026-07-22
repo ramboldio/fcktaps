@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""Quiet-by-default command-line interface for the fcktaps build."""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+from report_warnings import print_messages, read_messages
+
+
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+ACM_WARNING = re.compile(r"^Class acmart Warning:\s*(.+)$")
+MISSING_DESCRIPTION = re.compile(
+    r"^A possible image without description on input line (\d+)\.$"
+)
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="fcktaps",
+        description="Convert a Word manuscript to ACM TAPS-compatible LaTeX and PDF.",
+    )
+    result.add_argument("-V", "--verbose", action="store_true", help="show the complete Pandoc, BibTeX, and LaTeX output")
+    result.add_argument("--paper-dir", metavar="PATH", help="paper working directory (default: ../paper)")
+    result.add_argument("document", metavar="DOCUMENT.docx", help="Word manuscript to process")
+    return result
+
+
+def figure_map(tex_path: Path) -> tuple[dict[int, int], int | None]:
+    """Map generated TeX line numbers to their one-based figure numbers."""
+    if not tex_path.is_file():
+        return {}, None
+
+    line_to_figure = {}
+    figure_number = 0
+    current_figure = None
+    teaser_figure = None
+    for line_number, line in enumerate(tex_path.read_text(encoding="utf8").splitlines(), 1):
+        if "\\begin{teaserfigure}" in line or "\\begin{figure}" in line:
+            figure_number += 1
+            current_figure = figure_number
+            if "\\begin{teaserfigure}" in line:
+                teaser_figure = figure_number
+        if current_figure is not None:
+            line_to_figure[line_number] = current_figure
+        if "\\end{teaserfigure}" in line or "\\end{figure}" in line:
+            current_figure = None
+    return line_to_figure, teaser_figure
+
+
+def compact_numbers(numbers: list[int]) -> str:
+    ranges = []
+    start = previous = numbers[0]
+    for number in numbers[1:] + [None]:
+        if number is not None and number == previous + 1:
+            previous = number
+            continue
+        if start == previous:
+            ranges.append(str(start))
+        elif previous == start + 1:
+            ranges.extend([str(start), str(previous)])
+        else:
+            ranges.append(f"{start}–{previous}")
+        if number is not None:
+            start = previous = number
+    if len(ranges) == 1:
+        return ranges[0]
+    return ", ".join(ranges[:-1]) + f", and {ranges[-1]}"
+
+
+def acm_warnings(lines: list[str], tex_path: Path) -> list[str]:
+    messages = []
+    seen = set()
+    missing_description_lines = set()
+    missing_description_summary = False
+    for line in lines:
+        match = ACM_WARNING.match(line.rstrip("\r\n"))
+        if not match:
+            continue
+        acm_message = match.group(1).strip()
+        description_match = MISSING_DESCRIPTION.match(acm_message)
+        if description_match:
+            missing_description_lines.add(int(description_match.group(1)))
+            continue
+        if acm_message == "Some images may lack descriptions.":
+            missing_description_summary = True
+            continue
+        message = f"ACM: {acm_message}"
+        if message not in seen:
+            seen.add(message)
+            messages.append(message)
+
+    if missing_description_lines:
+        line_to_figure, teaser_figure = figure_map(tex_path)
+        figure_numbers = set()
+        unresolved_lines = []
+        tex_lines = tex_path.read_text(encoding="utf8").splitlines() if tex_path.is_file() else []
+        for line_number in sorted(missing_description_lines):
+            figure_number = line_to_figure.get(line_number)
+            if figure_number is None and 0 < line_number <= len(tex_lines):
+                if "\\maketitle" in tex_lines[line_number - 1]:
+                    figure_number = teaser_figure
+            if figure_number is None:
+                unresolved_lines.append(line_number)
+            else:
+                figure_numbers.add(figure_number)
+
+        parts = []
+        if figure_numbers:
+            noun = "Figure" if len(figure_numbers) == 1 else "Figures"
+            parts.append(f"{noun} {compact_numbers(sorted(figure_numbers))}")
+        if unresolved_lines:
+            noun = "input line" if len(unresolved_lines) == 1 else "input lines"
+            parts.append(f"{noun} {compact_numbers(unresolved_lines)}")
+        messages.insert(0, f"ACM: {', '.join(parts)} may be missing descriptions.")
+    elif missing_description_summary:
+        messages.insert(0, "ACM: Some images may be missing descriptions.")
+    return messages
+
+
+def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path) -> int:
+    environment = dict(os.environ)
+    environment["FCKTAPS_SUPPRESS_WARNING_DISPLAY"] = "1"
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        bufsize=1,
+    )
+
+    lines = []
+
+    def consume_output() -> None:
+        assert process.stdout is not None
+        for line in process.stdout:
+            lines.append(line)
+            if verbose:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+
+    reader = threading.Thread(target=consume_output, daemon=True)
+    reader.start()
+
+    interactive = sys.stderr.isatty()
+    if not verbose and not interactive:
+        print("LaTeX is running...", file=sys.stderr)
+
+    frame = 0
+    try:
+        while process.poll() is None:
+            if not verbose and interactive:
+                sys.stderr.write(f"\r\033[2K{SPINNER[frame % len(SPINNER)]} LaTeX is running…")
+                sys.stderr.flush()
+                frame += 1
+            time.sleep(0.08)
+    except KeyboardInterrupt:
+        process.terminate()
+        process.wait()
+        raise
+    finally:
+        reader.join()
+        if not verbose and interactive:
+            sys.stderr.write("\r\033[2K")
+            sys.stderr.flush()
+
+    return_code = process.returncode
+    messages = read_messages(warnings_file)
+    messages.extend(
+        message
+        for message in acm_warnings(lines, warnings_file.parent / "paper.tex")
+        if message not in messages
+    )
+
+    if return_code == 0:
+        if not verbose:
+            print("LaTeX finished.", file=sys.stderr)
+    else:
+        print(
+            f"Build failed with exit code {return_code}. Re-run with -V or --verbose for details.",
+            file=sys.stderr,
+        )
+
+    print_messages(messages)
+    return return_code
+
+
+def main() -> None:
+    args = parser().parse_args()
+    tool_dir = Path(__file__).resolve().parent
+    document = Path(args.document).expanduser().resolve()
+    paper_dir = (
+        Path(args.paper_dir).expanduser().resolve()
+        if args.paper_dir
+        else (tool_dir.parent / "paper").resolve()
+    )
+
+    if not document.is_file():
+        parser().error(f"document not found: {document}")
+    if not paper_dir.is_dir():
+        parser().error(f"paper directory not found: {paper_dir}")
+
+    command = ["make", f"DOCX={document}", f"PAPER_DIR={paper_dir}"]
+    warnings_file = paper_dir / ".fcktaps-warnings"
+    try:
+        sys.exit(run_build(command, tool_dir, args.verbose, warnings_file))
+    except KeyboardInterrupt:
+        print("\nBuild interrupted.", file=sys.stderr)
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()
