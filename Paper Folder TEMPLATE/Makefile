@@ -2,6 +2,8 @@ DOCX ?=
 FCKTAPS ?= $(if $(wildcard ../patch_latex_things.js),$(abspath ..),$(abspath ../fcktaps))
 FIGURE_OVERRIDES ?= figures/override
 OVERRIDE_FILES := $(wildcard $(FIGURE_OVERRIDES)/*)
+FRONTMATTER_DIR ?= frontmatter
+FRONTMATTER_FILES := $(addprefix $(FRONTMATTER_DIR)/,authors.tex ccs.tex rights.tex)
 WARNINGS_FILE ?= .fcktaps-warnings
 
 .PHONY: all clean check-input check-packages paper_indexed.json figure-overrides
@@ -41,8 +43,9 @@ figure-overrides: paper_indexed.json $(OVERRIDE_FILES)
 		"$(FIGURE_OVERRIDES)" figures/media paper_indexed.json
 	@touch $@
 
-paper_filtered.json: paper_indexed.json figure-overrides
+paper_filtered.json: paper_indexed.json figure-overrides $(FRONTMATTER_FILES)
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+	FCKTAPS_FRONTMATTER_DIR="$(FRONTMATTER_DIR)" \
 		pandoc paper_indexed.json --from=json --to=json --output=$@ \
 		--filter="$(FCKTAPS)/rewrite_paths_as_pdf_images.js" \
 		--filter="$(FCKTAPS)/patch_latex_things.js"
@@ -66,6 +69,6 @@ paper.pdf: paper.tex zotero.bib
 clean:
 	rm -f paper.json paper_indexed.json paper_filtered.json paper.tex paper_unpatched.tex paper.pdf
 	rm -f paper.bbl paper.blg paper.aux paper.log paper.out comment.cut figures-converted figure-overrides
-	# Persistent overrides and their README live beside, never inside, media.
+	# Persistent figure overrides and frontmatter live outside generated media.
 	rm -rf figures/media
 	python3 "$(FCKTAPS)/report_warnings.py" clear "$(WARNINGS_FILE)"

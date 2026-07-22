@@ -1,5 +1,20 @@
 #!/usr/bin/env node
 
+const fs = require("fs");
+const path = require("path");
+
+const load_frontmatter = () => {
+	const directory = process.env.FCKTAPS_FRONTMATTER_DIR;
+	if (!directory) {
+		throw new Error("FCKTAPS_FRONTMATTER_DIR is not set");
+	}
+
+	return Object.fromEntries(["authors", "ccs", "rights"].map(name => [
+		name,
+		fs.readFileSync(path.join(directory, `${name}.tex`), "utf8").trim(),
+	]));
+};
+
 // Read all stdin
 const readStdin = () => {
   return new Promise((resolve) => {
@@ -106,6 +121,7 @@ const MetaList = (items) => ({
 (async () => {
 	readStdin().then(async (stdin_content) => {
 		const doc = JSON.parse(stdin_content);
+		const frontmatter = load_frontmatter();
 		
 		let blocks = doc.blocks;
 
@@ -242,51 +258,6 @@ const MetaList = (items) => ({
 				: [block]
 		);
 
-		const render_author = (author) => RawLatexPara(`
-			 \\author{${author}}
-				\\affiliation{
-					\\institution{Hasso Plattner Institute}
-					\\city{Potsdam}
-					\\country{Germany}
-				}`
-		);
-
-		const render_author_short_handle = (author_short_handle) => RawLatexPara(`\\renewcommand{\\shortauthors}{${author_short_handle}}`);
-
-		// acmart excludes CCSXML with the comment package, whose closing marker
-		// must start in column one. Explicit lines prevent source indentation
-		// from leaking into the generated LaTeX.
-		const render_ccs = () => RawLatexPara([
-			"\\begin{CCSXML}",
-			"<ccs2012>",
-			"<concept>",
-			"<concept_id>10003120.10003121.10003129</concept_id>",
-			"<concept_desc>Human-centered computing~Interactive systems and tools</concept_desc>",
-			"<concept_significance>500</concept_significance>",
-			"</concept>",
-			"</ccs2012>",
-			"\\end{CCSXML}",
-			"\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}",
-		].join("\n"));
-		const render_copyright_stuff = () => RawLatexPara(`
-		\\copyrightyear{2026}
-		\\acmYear{2026}
-		\\setcopyright{cc}
-		\\setcctype{by}
-		\\acmConference[UIST '26]{The 39th Annual ACM Symposium on User Interface Software and Technology}{November 02--05, 2026}{Detroit, MI, USA}
-		\\acmBooktitle{The 39th Annual ACM Symposium on User Interface Software and Technology (UIST '26), November 02--05, 2026, Detroit, MI, USA}
-		\\acmDOI{10.1145/3830398.3830674}
-		\\acmISBN{979-8-4007-2856-3/2026/11}
-		`);
-
-		const authors = [
-			"Antonius Naumann", "Chiao Fang", "Lukas Rambold", "Martin Taraz",
-			"Tom Haas", "Jonas Baron", "Katharina Posegga", "Edgar Bennemann",
-			"Corvin Kögler", "Leonard Del Federico", "Julian Arnold", "Gustav Ahlgrimm",
-			"Shohei Katakura", "Muhammad Abdullah", "Robert Kovacs", "Patrick Baudisch"
-		];
-		const author_short_handle = "Naumann et al.";
-
 		blocks = [
 			RawLatexPara(`
 \\documentclass[sigconf,screen]{acmart}
@@ -312,12 +283,11 @@ const MetaList = (items) => ({
 			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),
-			render_ccs(),
-			render_copyright_stuff(),
+			RawLatexPara(frontmatter.ccs),
+			RawLatexPara(frontmatter.rights),
 			render_keywords(doc.meta.keywords.c.map(item => item.c)),
 			...(figure_one ? [render_figure_one(figure_one)] : []),
-			...authors.map(render_author),
-			render_author_short_handle(author_short_handle),
+			RawLatexPara(frontmatter.authors),
 			RawLatexPara(`
 \\maketitle`),
 			...blocks,
