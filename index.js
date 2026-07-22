@@ -66,6 +66,129 @@ const metadata_text = meta => {
   return "";
 };
 
+const is_references_heading = text => text.trim().toLocaleLowerCase() === "references";
+
+const normalized_inline_text = inlines => stringify_inlines(inlines)
+  .replace(/\s+/g, " ")
+  .trim();
+
+const visit_ast = (value, fn) => {
+  if (Array.isArray(value)) {
+    value.forEach(child => visit_ast(child, fn));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  fn(value);
+  Object.values(value).forEach(child => visit_ast(child, fn));
+};
+
+// Resolve Word bookmarks referenced by the exact text of a unique heading to
+// that heading's native Pandoc identifier. This also repairs malformed Word
+// bookmarks that begin before the heading and expand across several paragraphs.
+const normalize_word_section_cross_references = blocks => {
+  const headings_by_text = new Map();
+  blocks.filter(block => block.t === "Header").forEach(header => {
+    const text = normalized_inline_text(header.c[2]);
+    if (!text || !header.c[1][0]) return;
+    const matches = headings_by_text.get(text) || [];
+    matches.push(header);
+    headings_by_text.set(text, matches);
+  });
+
+  const word_anchor_ids = new Set();
+  visit_ast(blocks, node => {
+    if (node.t === "Span" && node.c[0][1].includes("anchor") && node.c[1].length === 0) {
+      word_anchor_ids.add(node.c[0][0]);
+    }
+  });
+
+  const repairs = new Map();
+  const link_texts_by_target = new Map();
+  visit_ast(blocks, node => {
+    if (node.t !== "Link") return;
+    const target = node.c[2][0];
+    if (!target.startsWith("#") || !word_anchor_ids.has(target.slice(1))) return;
+    const link_text = normalized_inline_text(node.c[1]);
+    const link_texts = link_texts_by_target.get(target) || [];
+    link_texts.push(link_text);
+    link_texts_by_target.set(target, link_texts);
+    const matching_headings = headings_by_text.get(link_text) || [];
+    if (matching_headings.length === 1) repairs.set(target, matching_headings[0]);
+  });
+  const expanded_targets = new Set();
+  repairs.forEach((header, target) => {
+    const heading_text = normalized_inline_text(header.c[2]);
+    if ((link_texts_by_target.get(target) || []).some(text => text !== heading_text)) {
+      expanded_targets.add(target);
+    }
+  });
+  if (repairs.size === 0) return blocks;
+
+  // Pandoc represents a Word hyperlink that crosses paragraph boundaries as
+  // one Link per paragraph. Merge only directly contiguous fragments back into
+  // the paragraph where the field began, preserving text after the field.
+  const continuation_blocks = new Set();
+  blocks.forEach((block, block_index) => {
+    if (block.t !== "Para" && block.t !== "Plain") return;
+    const last = block.c[block.c.length - 1];
+    if (block.c.length < 2 || last?.t !== "Link" ||
+        !expanded_targets.has(last.c[2][0])) return;
+
+    const target = last.c[2][0];
+    for (let i = block_index + 1; i < blocks.length; i += 1) {
+      const continuation = blocks[i];
+      if (continuation.t !== "Para" && continuation.t !== "Plain") break;
+      const first = continuation.c[0];
+      if (first?.t !== "Link" || first.c[2][0] !== target) break;
+
+      continuation_blocks.add(continuation);
+      if (continuation.c.length > 1) {
+        block.c = [...block.c, ...continuation.c.slice(1)];
+        break;
+      }
+    }
+  });
+  blocks = blocks.filter(block => !continuation_blocks.has(block));
+
+  const rewrite = value => {
+    // Pandoc uses meaningful null array elements (for example in captions), so
+    // reserve undefined specifically for AST nodes removed by this repair.
+    if (Array.isArray(value)) return value.map(rewrite).filter(child => child !== undefined);
+    if (!value || typeof value !== "object") return value;
+
+    if (value.t === "Span" && value.c[0][1].includes("anchor") &&
+        value.c[1].length === 0 && repairs.has(`#${value.c[0][0]}`)) {
+      return undefined;
+    }
+
+    if (value.t === "Link" && repairs.has(value.c[2][0])) {
+      const header = repairs.get(value.c[2][0]);
+      return {
+        ...value,
+        c: [
+          rewrite(value.c[0]),
+          rewrite(header.c[2]),
+          [`#${header.c[1][0]}`, value.c[2][1]],
+        ],
+      };
+    }
+
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, rewrite(child)])
+    );
+  };
+
+  repairs.forEach((header, target) => {
+    debug(
+      `Normalized Word section cross-reference ${target}: ` +
+      `${JSON.stringify(normalized_inline_text(header.c[2]))}`
+    );
+  });
+  return rewrite(blocks).filter(block =>
+    !((block.t === "Para" || block.t === "Plain") && block.c.length === 0)
+  );
+};
+
 const is_title_case = text => {
   const wordPattern = /[\p{L}\p{N}]+(?:[’'][\p{L}\p{N}]+)*(?:[-‐‑‒–—][\p{L}\p{N}]+)*/gu;
   const matches = [...text.matchAll(wordPattern)];
@@ -370,13 +493,13 @@ const extract_chi = (doc, blocks) => {
 
   // Boilerplate
   blocks = blocks.filter(b => {
-    if (b.t !== "Para") return true;
-    const text = stringify_inlines(b.c);
+    if (b.t !== "Para" && b.t !== "Header") return true;
+    const text = b.t === "Para" ? stringify_inlines(b.c) : stringify_inlines(b.c[2]);
     return !(
       text.startsWith("First Author's Name, Initials,") ||
       text.startsWith("First author's affiliation") ||
       text.startsWith("ACM Reference Format") ||
-      text.startsWith("References") ||
+      is_references_heading(text) ||
       text.startsWith("CCS CONCEPTS")
     );
   });
@@ -474,7 +597,8 @@ const extract_uist = (doc, blocks) => {
       text.startsWith("ACM Reference Format") ||
       text.startsWith("CCS CONCEPTS") ||
       text === "Author Keywords" ||
-      text === "CSS Concepts"
+      text === "CSS Concepts" ||
+      is_references_heading(text)
     );
   });
 
@@ -493,6 +617,8 @@ const extract_uist = (doc, blocks) => {
   blocks = format === "uist"
     ? extract_uist(doc, blocks)
     : extract_chi(doc, blocks);
+
+  blocks = normalize_word_section_cross_references(blocks);
 
   warn_about_title_case(doc, blocks);
 
