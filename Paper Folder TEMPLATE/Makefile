@@ -29,6 +29,7 @@ figures-converted: paper.json
 
 paper_indexed.json: paper.json figures-converted zotero.bib reference_keys.csv
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+	FCKTAPS_FIGURE_OVERRIDES="$(FIGURE_OVERRIDES)" \
 		pandoc paper.json --from=json --to=json --output=$@ \
 		--filter="$(FCKTAPS)/validate_references.js" \
 		--filter="$(FCKTAPS)/link_refs_to_bibliography.js" \

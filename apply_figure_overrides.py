@@ -140,7 +140,9 @@ def main() -> None:
     figures = figure_images(indexed_json)
     seen_targets = set()
     for source in sorted(path for path in override_dir.iterdir() if path.is_file()):
-        if source.name == "README.md":
+        # Finder and other file managers may leave metadata files in this folder.
+        # They are not figure overrides and should not fail the build.
+        if source.name == "README.md" or source.name.startswith("."):
             continue
 
         match = NAME_PATTERN.fullmatch(source.name)

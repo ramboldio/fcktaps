@@ -54,8 +54,9 @@ maps the readable override name to the publication figure number and the
 generated LaTeX prefers the override PDF. `make clean` preserves this directory.
 
 Each LaTeX figure contains exactly one artwork file. If a Word figure contains
-multiple embedded images, the build warns and selects its first image; it never
-creates a multi-image LaTeX figure.
+multiple embedded images, the build selects its first image and warns unless a
+valid override for that figure already exists; it never creates a multi-image
+LaTeX figure.
 
 The build warns for every non-PDF override and for artwork that differs from
 the `acmart` publication width (7.0 inches for the teaser, 3.33 inches for

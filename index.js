@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const path = require("path");
+
+const FIGURE_OVERRIDE_PATTERN =
+  /^figure([1-9]\d*)--[a-z0-9]+(?:-[a-z0-9]+)*(\.[A-Za-z0-9]+)$/;
 
 const readStdin = () => new Promise((resolve) => {
   let data = "";
@@ -67,6 +71,40 @@ const get_images = (node, images = []) => {
   return images;
 };
 
+const has_figure_override = (figure_number, image_path) => {
+  const override_dir = process.env.FCKTAPS_FIGURE_OVERRIDES;
+  if (!override_dir) return false;
+
+  let entries;
+  try {
+    entries = fs.readdirSync(override_dir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+
+  const matches = entries.flatMap(entry => {
+    if (!entry.isFile() || entry.name === "README.md" || entry.name.startsWith(".")) return [];
+    const match = entry.name.match(FIGURE_OVERRIDE_PATTERN);
+    return match && Number(match[1]) === figure_number ? [match] : [];
+  });
+  if (matches.length !== 1) return false;
+
+  const extension = matches[0][2];
+  if (extension.toLowerCase() === ".pdf") return true;
+
+  // Non-PDF overrides are accepted only when their extension matches an
+  // extracted asset, as enforced later by apply_figure_overrides.py.
+  const parsed_image_path = path.parse(image_path);
+  const target = path.join(parsed_image_path.dir, `${parsed_image_path.name}${extension}`);
+  try {
+    return fs.statSync(target).isFile();
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+};
+
 const get_anchor_ref = (block) => {
   if (block.t === "Span" && block.c[0][1][0] === "anchor") return block.c[0][0];
   return undefined;
@@ -101,7 +139,7 @@ const normalize_figures = (blocks) => {
       warn(`Figure ${figureNumber} contains no image.`);
       return block;
     }
-    if (images.length > 1) {
+    if (images.length > 1 && !has_figure_override(figureNumber, images[0].c[2][0])) {
       warn(
         `Figure ${figureNumber} contains ${images.length} images; ` +
         `using only the first image (${images[0].c[2][0]}) for LaTeX.`
