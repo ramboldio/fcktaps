@@ -94,7 +94,7 @@ LaTeX figure. Float barriers at section and subsection boundaries keep queued
 figures within the subsection where they occur.
 
 The build warns for every non-PDF override and for artwork that differs from
-the `acmart` publication width (7.0 inches for the teaser, 3.33 inches for
+the `acmart` publication width (7.0 inches for Figure 1, 3.33 inches for
 single-column figures, ±0.05-inch tolerance). Figure height is not validated.
 
 ## Paper-specific frontmatter
@@ -109,6 +109,9 @@ The converter reads these fragments on every build in the same way that it
 reads persistent figure overrides, and changes to any fragment trigger a
 rebuild of the generated LaTeX. `make clean` never removes them. Set
 `FRONTMATTER_DIR` to use a different paper-local directory.
+
+The rendered abstract, CCS concepts, keywords, rights banner, and ACM reference
+format precede the full-width Figure 1.
 
 ## Reference validation
 
