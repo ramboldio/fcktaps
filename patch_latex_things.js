@@ -272,9 +272,11 @@ const MetaList = (items) => ({
 		\\copyrightyear{2026}
 		\\acmYear{2026}
 		\\setcopyright{cc}
-		\\setcctype{by-nc-nd}
-		\\acmConference[UIST '26]{Proceedings of the 39th Annual ACM Symposium on User Interface Software and Technology}{October 2026}{Pittsburgh, PA, USA}
-		\\acmBooktitle{Proceedings of the 39th Annual ACM Symposium on User Interface Software and Technology (UIST '26)}
+		\\setcctype{by}
+		\\acmConference[UIST '26]{The 39th Annual ACM Symposium on User Interface Software and Technology}{November 02--05, 2026}{Detroit, MI, USA}
+		\\acmBooktitle{The 39th Annual ACM Symposium on User Interface Software and Technology (UIST '26), November 02--05, 2026, Detroit, MI, USA}
+		\\acmDOI{10.1145/3830398.3830674}
+		\\acmISBN{979-8-4007-2856-3/2026/11}
 		`);
 
 		const authors = [
@@ -298,7 +300,6 @@ const MetaList = (items) => ({
 \\usepackage{dblfloatfix}
 \\usepackage{wasysym}
 \\usepackage{url}
-\\hypersetup{hidelinks}
 \\usepackage{newunicodechar}
 \\newunicodechar{₂}{\\ensuremath{_2}}
 \\newunicodechar{μ}{\\ensuremath{\\mu}}
@@ -307,6 +308,7 @@ const MetaList = (items) => ({
 \\newunicodechar{×}{\\texttimes}
 \\newunicodechar{°}{\\textdegree}
 \\begin{document}
+\\hypersetup{allcolors=black}
 			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),
