@@ -20,7 +20,7 @@ const TITLE_CASE_ACRONYMS = new Set([
   "VIS", "VR", "XR",
 ]);
 const STRUCTURAL_HEADINGS = new Set([
-  "acknowledgments", "acknowledgements", "author keywords", "ccs concepts", "references",
+  "abstract", "acknowledgments", "acknowledgements", "author keywords", "ccs concepts", "references",
 ]);
 const COURIER_NEW_INLINE_CODE_STYLES = new Set([
   "code", "in-text code", "inline code",
@@ -532,7 +532,6 @@ const extract_uist = (doc, blocks) => {
   }
   if (!abstract_block) throw new Error("Could not find abstract paragraph");
   doc.meta.abstract = MetaInlines(abstract_block.c);
-  blocks = blocks.filter(b => b !== abstract_block);
 
   // Keywords: Para immediately after "Author Keywords" header
   const kw_block = blocks[kw_header_idx + 1];
@@ -541,6 +540,26 @@ const extract_uist = (doc, blocks) => {
       ? stringify_inlines(kw_block.c).replace(/\.$/, "").split(", ")
       : []
   );
+
+  // These front-matter fields are emitted by patch_latex_things.js. Remove
+  // their Word labels and source blocks so they do not reappear after
+  // \maketitle as ordinary body content.
+  const ccs_header_idx = blocks.findIndex(b =>
+    b.t === "Header" && normalized_inline_text(b.c[2]).toLocaleLowerCase() === "ccs concepts"
+  );
+  const ccs_end_idx = ccs_header_idx === -1
+    ? -1
+    : blocks.findIndex((b, i) => i > ccs_header_idx && b.t === "Header");
+  blocks = blocks.filter((b, i) => {
+    if (b === abstract_block || b === kw_block) return false;
+    if ((b.t === "Para" || b.t === "Header") &&
+        normalized_inline_text(b.t === "Header" ? b.c[2] : b.c).toLocaleLowerCase() === "abstract")
+      return false;
+    if (i === kw_header_idx) return false;
+    if (ccs_header_idx !== -1 && i >= ccs_header_idx &&
+        (ccs_end_idx === -1 || i < ccs_end_idx)) return false;
+    return true;
+  });
 
   // Acknowledgements: Para after ACKNOWLEDGMENTS header
   const ack_idx = blocks.findIndex(
