@@ -20,6 +20,9 @@ const TITLE_CASE_ACRONYMS = new Set([
 const STRUCTURAL_HEADINGS = new Set([
   "acknowledgments", "acknowledgements", "author keywords", "ccs concepts", "references",
 ]);
+const COURIER_NEW_INLINE_CODE_STYLES = new Set([
+  "code", "in-text code", "inline code",
+]);
 
 const readStdin = () => new Promise((resolve) => {
   let data = "";
@@ -34,6 +37,17 @@ const warn = (message) => {
     fs.appendFileSync(warningsFile, `${message}\n`, "utf8");
   } else {
     process.stderr.write(`WARNING -- ${message}\n`);
+  }
+};
+
+const debug = (message) => {
+  const warningsFile = process.env.FCKTAPS_WARNINGS_FILE;
+  if (warningsFile) {
+    fs.appendFileSync(warningsFile, `DEBUG -- ${message}\n`, "utf8");
+  } else {
+    const cyan = process.stderr.isTTY ? "\x1b[1;96m" : "";
+    const reset = process.stderr.isTTY ? "\x1b[0m" : "";
+    process.stderr.write(`${cyan}DEBUG${reset} -- ${message}\n`);
   }
 };
 
@@ -190,6 +204,7 @@ const Str = (text) => ({ t: "Str", c: text });
 const Space = () => ({ t: "Space" });
 const NonBreakingSpace = () => Str(" ");
 const RawLatex = (text) => ({ t: "RawInline", c: ["latex", text] });
+const Code = (text) => ({ t: "Code", c: [["", [], []], text] });
 
 const Image = (path, ref_id = "", caption_inlines = []) => ({
   t: "Image",
@@ -248,6 +263,40 @@ const convert_div_to_para = (block) => {
   if (block.t === "Div" && block.c[1].length === 1 && block.c[1][0].t === "Para")
     return block.c[1][0];
   return block;
+};
+
+const inline_code_text = (inlines) => inlines.map(inline => {
+  if (inline.t === "Str") return inline.c;
+  if (["Space", "SoftBreak", "LineBreak"].includes(inline.t)) return " ";
+  if (inline.t === "Code" || inline.t === "Math" || inline.t === "RawInline") return inline.c[1];
+  if (inline.t === "Span" || inline.t === "Link") return inline_code_text(inline.c[1]);
+  if (inline.t === "Quoted") return inline_code_text(inline.c[1]);
+  if ([
+    "Emph", "Strong", "Strikeout", "Superscript", "Subscript", "SmallCaps", "Underline",
+  ].includes(inline.t)) return inline_code_text(inline.c);
+  return "";
+}).join("");
+
+const is_courier_new_inline_code_span = (node) => {
+  if (node.t !== "Span") return false;
+  const customStyle = node.c[0][2]
+    .find(attribute => attribute[0] === "custom-style")?.[1]
+    ?.trim().toLocaleLowerCase();
+  return COURIER_NEW_INLINE_CODE_STYLES.has(customStyle);
+};
+
+const convert_courier_new_to_inline_code = (value) => {
+  if (Array.isArray(value)) return value.map(convert_courier_new_to_inline_code);
+  if (!value || typeof value !== "object") return value;
+
+  const converted = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, convert_courier_new_to_inline_code(child)])
+  );
+  if (!is_courier_new_inline_code_span(converted)) return converted;
+
+  const text = inline_code_text(converted.c[1]);
+  debug(`Courier New → ACM SIGCHI inline code: ${JSON.stringify(text)}`);
+  return Code(text);
 };
 
 // ── Format detection ──────────────────────────────────────────────────────────
@@ -455,5 +504,5 @@ const extract_uist = (doc, blocks) => {
   blocks = blocks.map(convert_div_to_para);
 
   doc.blocks = blocks;
-  process.stdout.write(JSON.stringify(doc));
+  process.stdout.write(JSON.stringify(convert_courier_new_to_inline_code(doc)));
 })();

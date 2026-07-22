@@ -23,14 +23,18 @@ def read_messages(path: Path) -> list[str]:
 
 
 def print_messages(messages: list[str]) -> None:
-    # ANSI bright yellow uses the terminal's own palette/theme. The explicit
-    # user-facing warning style takes precedence over an inherited NO_COLOR;
+    # ANSI bright colors use the terminal's own palette/theme. The explicit
+    # user-facing message styles take precedence over an inherited NO_COLOR;
     # redirected logs remain escape-free because stderr is then not a TTY.
     use_color = sys.stderr.isatty()
     yellow = "\033[1;93m" if use_color else ""
+    cyan = "\033[1;96m" if use_color else ""
     reset = "\033[0m" if use_color else ""
     for message in messages:
-        print(f"{yellow}WARNING{reset} -- {message}\n", file=sys.stderr)
+        if message.startswith("DEBUG -- "):
+            print(f"{cyan}DEBUG{reset}{message.removeprefix('DEBUG')}\n", file=sys.stderr)
+        else:
+            print(f"{yellow}WARNING{reset} -- {message}\n", file=sys.stderr)
 
 
 def show(path: Path) -> None:
