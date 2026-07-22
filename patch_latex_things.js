@@ -215,7 +215,7 @@ const MetaList = (items) => ({
 			const alt = get_alt_text(figure);
 			const image = get_figure_image(figure);
 			const parts = [
-				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\textwidth,height=0.25\\textheight,keepaspectratio]{${image.c[2][0]}}`),
+				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
 				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
