@@ -59,9 +59,13 @@ rendered in bold bright cyan.
 ## Figure overrides
 
 Persistent replacements live in `paper/figures/override` and use names such as
-`figure5--calibration-patterns.pdf`. On every build, the portion before `--`
+`figure5--material+machine-calibration.pdf`. Descriptive slugs may separate
+words with hyphens or plus signs. On every build, the portion before `--`
 maps the readable override name to the publication figure number and the
 generated LaTeX prefers the override PDF. `make clean` preserves this directory.
+Add `-h` after the figure number, as in
+`figure5-h--calibration-patterns.pdf`, to force that figure's LaTeX placement
+from `[h]` to `[H]` using the `float` package.
 
 Each LaTeX figure contains exactly one artwork file. If a Word figure contains
 multiple embedded images, the build selects its first image and warns unless a

@@ -4,7 +4,9 @@ const fs = require("fs");
 const path = require("path");
 
 const FIGURE_OVERRIDE_PATTERN =
-  /^figure([1-9]\d*)--[a-z0-9]+(?:-[a-z0-9]+)*(\.[A-Za-z0-9]+)$/;
+  /^figure([1-9]\d*)(?:-(h))?--[a-z0-9]+(?:[-+][a-z0-9]+)*(\.[A-Za-z0-9]+)$/;
+
+const FIGURE_PLACEMENT_ATTRIBUTE = "fcktaps-latex-placement";
 
 const TITLE_CASE_MINOR_WORDS = new Set([
   "a", "an", "and", "as", "at", "but", "by", "for", "from", "if", "in",
@@ -281,15 +283,15 @@ const get_images = (node, images = []) => {
   return images;
 };
 
-const has_figure_override = (figure_number, image_path) => {
+const find_figure_override = (figure_number, image_path) => {
   const override_dir = process.env.FCKTAPS_FIGURE_OVERRIDES;
-  if (!override_dir) return false;
+  if (!override_dir) return null;
 
   let entries;
   try {
     entries = fs.readdirSync(override_dir, { withFileTypes: true });
   } catch (error) {
-    if (error.code === "ENOENT") return false;
+    if (error.code === "ENOENT") return null;
     throw error;
   }
 
@@ -298,19 +300,19 @@ const has_figure_override = (figure_number, image_path) => {
     const match = entry.name.match(FIGURE_OVERRIDE_PATTERN);
     return match && Number(match[1]) === figure_number ? [match] : [];
   });
-  if (matches.length !== 1) return false;
+  if (matches.length !== 1) return null;
 
-  const extension = matches[0][2];
-  if (extension.toLowerCase() === ".pdf") return true;
+  const extension = matches[0][3];
+  if (extension.toLowerCase() === ".pdf") return matches[0];
 
   // Non-PDF overrides are accepted only when their extension matches an
   // extracted asset, as enforced later by apply_figure_overrides.py.
   const parsed_image_path = path.parse(image_path);
   const target = path.join(parsed_image_path.dir, `${parsed_image_path.name}${extension}`);
   try {
-    return fs.statSync(target).isFile();
+    return fs.statSync(target).isFile() ? matches[0] : null;
   } catch (error) {
-    if (error.code === "ENOENT") return false;
+    if (error.code === "ENOENT") return null;
     throw error;
   }
 };
@@ -350,16 +352,21 @@ const normalize_figures = (blocks) => {
       warn(`Figure ${figureNumber} contains no image.`);
       return block;
     }
-    if (images.length > 1 && !has_figure_override(figureNumber, images[0].c[2][0])) {
+    const override = find_figure_override(figureNumber, images[0].c[2][0]);
+    if (images.length > 1 && !override) {
       warn(
         `Figure ${figureNumber} contains ${images.length} images; ` +
         `using only the first image (${images[0].c[2][0]}) for LaTeX.`
       );
     }
 
+    const attributes = block.c[0];
+    const keyValues = attributes[2].filter(([key]) => key !== FIGURE_PLACEMENT_ATTRIBUTE);
+    if (override?.[2] === "h") keyValues.push([FIGURE_PLACEMENT_ATTRIBUTE, "H"]);
+
     return {
       ...block,
-      c: [block.c[0], block.c[1], [Para([images[0]])]],
+      c: [[attributes[0], attributes[1], keyValues], block.c[1], [Para([images[0]])]],
     };
   });
 };

@@ -11,7 +11,8 @@ from pathlib import Path
 
 
 NAME_PATTERN = re.compile(
-    r"^(?P<target>figure(?P<number>[1-9]\d*))--(?P<description>[a-z0-9]+(?:-[a-z0-9]+)*)"
+    r"^(?P<target>figure(?P<number>[1-9]\d*)(?:-(?P<placement>h))?)"
+    r"--(?P<description>[a-z0-9]+(?:[-+][a-z0-9]+)*)"
     r"(?P<extension>\.[A-Za-z0-9]+)$"
 )
 
@@ -149,7 +150,7 @@ def main() -> None:
         if not match:
             print(
                 f"Invalid override name: {source.name}\n"
-                "Expected: figure<number>--<descriptive-slug>.<extension>",
+                "Expected: figure<number>[-h]--<descriptive-slug>.<extension>",
                 file=sys.stderr,
             )
             sys.exit(1)

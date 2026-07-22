@@ -172,8 +172,12 @@ const MetaList = (items) => ({
 		const render_figure = (figure) => {
 			const alt = get_alt_text(figure);
 			const image = get_figure_image(figure);
+			const force_here = figure.c[0][2].some(([key, value]) =>
+				key === "fcktaps-latex-placement" && value === "H"
+			);
+			const placement = force_here ? "H" : "h";
 			const parts = [
-				RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
+				RawLatex(`\\begin{figure}[${placement}]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
 				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
@@ -284,6 +288,7 @@ const MetaList = (items) => ({
 \\usepackage{dblfloatfix}
 \\usepackage{wasysym}
 \\usepackage{url}
+\\hypersetup{hidelinks}
 \\usepackage{newunicodechar}
 \\newunicodechar{₂}{\\ensuremath{_2}}
 \\newunicodechar{μ}{\\ensuremath{\\mu}}
