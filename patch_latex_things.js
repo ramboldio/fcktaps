@@ -233,6 +233,15 @@ const MetaList = (items) => ({
 
 		const RawLatexPara = (text) => Para([RawLatex(text)]);
 
+		// Keep queued figures inside the section or subsection where they occur.
+		// A barrier before each new boundary closes the preceding one; the final
+		// barrier below closes the last subsection in the manuscript.
+		blocks = blocks.flatMap(block =>
+			block.t === "Header" && block.c[0] <= 2
+				? [RawLatexPara("\\FloatBarrier"), block]
+				: [block]
+		);
+
 		const render_author = (author) => RawLatexPara(`
 			 \\author{${author}}
 				\\affiliation{
@@ -283,6 +292,7 @@ const MetaList = (items) => ({
 \\usepackage[utf8]{inputenc}
 \\usepackage[T1]{fontenc}
 \\usepackage{float}
+\\usepackage{placeins}
 \\usepackage{algorithm}
 \\usepackage{algpseudocode}
 \\usepackage{dblfloatfix}
@@ -309,6 +319,7 @@ const MetaList = (items) => ({
 			RawLatexPara(`
 \\maketitle`),
 			...blocks,
+			RawLatexPara("\\FloatBarrier"),
 			render_acknoledgements(doc.meta.acknoledgements),
 			RawLatexPara(`
 \\bibliographystyle{ACM-Reference-Format}

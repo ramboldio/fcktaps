@@ -27,11 +27,14 @@ def print_messages(messages: list[str]) -> None:
     # user-facing message styles take precedence over an inherited NO_COLOR;
     # redirected logs remain escape-free because stderr is then not a TTY.
     use_color = sys.stderr.isatty()
+    red = "\033[1;91m" if use_color else ""
     yellow = "\033[1;93m" if use_color else ""
     cyan = "\033[1;96m" if use_color else ""
     reset = "\033[0m" if use_color else ""
     for message in messages:
-        if message.startswith("DEBUG -- "):
+        if message.startswith("ERROR -- "):
+            print(f"{red}ERROR{reset}{message.removeprefix('ERROR')}\n", file=sys.stderr)
+        elif message.startswith("DEBUG -- "):
             print(f"{cyan}DEBUG{reset}{message.removeprefix('DEBUG')}\n", file=sys.stderr)
         else:
             print(f"{yellow}WARNING{reset} -- {message}\n", file=sys.stderr)

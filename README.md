@@ -70,7 +70,8 @@ from `[h]` to `[H]` using the `float` package.
 Each LaTeX figure contains exactly one artwork file. If a Word figure contains
 multiple embedded images, the build selects its first image and warns unless a
 valid override for that figure already exists; it never creates a multi-image
-LaTeX figure.
+LaTeX figure. Float barriers at section and subsection boundaries keep queued
+figures within the subsection where they occur.
 
 The build warns for every non-PDF override and for artwork that differs from
 the `acmart` publication width (7.0 inches for the teaser, 3.33 inches for
@@ -90,6 +91,10 @@ in punctuation, capitalization, accents, and common LaTeX commands are ignored.
 These checks are advisory and do not stop conversion. All fcktaps warnings are
 buffered during conversion and shown after the LaTeX output as `WARNING -- ...`
 lines, with only `WARNING` rendered in bold bright yellow.
+
+If LaTeX fails, the quiet summary reports its first actionable diagnostic and
+nearby input-line context as `ERROR -- ...`, with only `ERROR` rendered in bold
+bright red. Use `-V` or `--verbose` when the complete build transcript is needed.
 
 `reference_keys.csv` contains one BibTeX key per Word bibliography entry, in
 document order. If Word assigns multiple anchors to a merged duplicate entry,

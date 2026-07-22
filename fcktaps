@@ -18,6 +18,12 @@ ACM_WARNING = re.compile(r"^Class acmart Warning:\s*(.+)$")
 MISSING_DESCRIPTION = re.compile(
     r"^A possible image without description on input line (\d+)\.$"
 )
+LATEX_ERROR = re.compile(r"^!\s+(.+?)\s*$")
+LATEX_LINE_CONTEXT = re.compile(r"^l\.(\d+)\s*(.*)$")
+LATEX_ERROR_SUMMARIES = {
+    "Emergency stop.",
+    "==> Fatal error occurred, no output PDF file produced!",
+}
 
 
 def parser() -> argparse.ArgumentParser:
@@ -123,6 +129,38 @@ def acm_warnings(lines: list[str], tex_path: Path) -> list[str]:
     return messages
 
 
+def latex_error(lines: list[str]) -> str | None:
+    """Return the first actionable TeX error and its nearby source context."""
+    errors = []
+    for index, line in enumerate(lines):
+        match = LATEX_ERROR.match(line.rstrip("\r\n"))
+        if not match:
+            continue
+
+        message = match.group(1).strip()
+        context = None
+        for following_line in lines[index + 1 : index + 16]:
+            if LATEX_ERROR.match(following_line.rstrip("\r\n")):
+                break
+            context_match = LATEX_LINE_CONTEXT.match(following_line.rstrip("\r\n"))
+            if context_match:
+                line_number, source = context_match.groups()
+                context = f"input line {line_number}"
+                if source.strip():
+                    context += f": {source.strip()}"
+                break
+        errors.append((message, context))
+
+    if not errors:
+        return None
+
+    message, context = next(
+        (error for error in errors if error[0] not in LATEX_ERROR_SUMMARIES),
+        errors[0],
+    )
+    return f"{message} ({context})" if context else message
+
+
 def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path) -> int:
     environment = dict(os.environ)
     environment["FCKTAPS_SUPPRESS_WARNING_DISPLAY"] = "1"
@@ -184,10 +222,11 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
         if not verbose:
             print("LaTeX finished.", file=sys.stderr)
     else:
-        print(
-            f"Build failed with exit code {return_code}. Re-run with -V or --verbose for details.",
-            file=sys.stderr,
+        error = latex_error(lines) or (
+            f"Build failed with exit code {return_code}. "
+            "Re-run with -V or --verbose for details."
         )
+        messages.insert(0, f"ERROR -- {error}")
 
     print_messages(messages)
     return return_code
