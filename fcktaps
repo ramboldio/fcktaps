@@ -86,14 +86,22 @@ def figure_map(tex_path: Path) -> tuple[dict[int, int], int | None]:
     current_figure = None
     teaser_figure = None
     for line_number, line in enumerate(tex_path.read_text(encoding="utf8").splitlines(), 1):
-        if "\\begin{teaserfigure}" in line or "\\begin{figure}" in line:
+        if (
+            "\\begin{teaserfigure}" in line
+            or "\\begin{figure*}" in line
+            or "\\begin{figure}" in line
+        ):
             figure_number += 1
             current_figure = figure_number
             if "\\begin{teaserfigure}" in line:
                 teaser_figure = figure_number
         if current_figure is not None:
             line_to_figure[line_number] = current_figure
-        if "\\end{teaserfigure}" in line or "\\end{figure}" in line:
+        if (
+            "\\end{teaserfigure}" in line
+            or "\\end{figure*}" in line
+            or "\\end{figure}" in line
+        ):
             current_figure = None
     return line_to_figure, teaser_figure
 

@@ -215,14 +215,14 @@ const MetaList = (items) => ({
 			const alt = get_alt_text(figure);
 			const image = get_figure_image(figure);
 			const parts = [
-				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
+				RawLatex(`\\begin{figure*}[t]\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
 				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),
-				RawLatex("}\n\\end{teaserfigure}"),
+				RawLatex("}\n\\end{figure*}"),
 			);
 			return Para(parts);
 		};
@@ -286,10 +286,10 @@ const MetaList = (items) => ({
 			RawLatexPara(frontmatter.ccs),
 			RawLatexPara(frontmatter.rights),
 			render_keywords(doc.meta.keywords.c.map(item => item.c)),
-			...(figure_one ? [render_figure_one(figure_one)] : []),
 			RawLatexPara(frontmatter.authors),
 			RawLatexPara(`
 \\maketitle`),
+			...(figure_one ? [render_figure_one(figure_one)] : []),
 			...blocks,
 			RawLatexPara("\\FloatBarrier"),
 			render_acknoledgements(doc.meta.acknoledgements),
