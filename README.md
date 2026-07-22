@@ -13,6 +13,22 @@ It automates the tedious steps required for preparing a submission-ready LaTeX p
 
 ## Usage
 
+Create a new paper directory by copying every file from
+`Paper Folder TEMPLATE`:
+
+```sh
+./fcktaps init
+```
+
+This creates the default `../paper` directory. Pass a destination to create
+the paper elsewhere:
+
+```sh
+./fcktaps init "/path/to/new-paper"
+```
+
+Initialization refuses to overwrite an existing file or directory.
+
 The default layout expects the working paper directory at `../paper`, containing
 that paper's `zotero.bib` and `reference_keys.csv`. From the `fcktaps` repository
 directory, pass the Word document to the `fcktaps` command:
