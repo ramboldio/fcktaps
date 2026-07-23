@@ -49,6 +49,12 @@ def parser() -> argparse.ArgumentParser:
         help="compress paper.pdf and referenced PDF figures after building",
     )
     result.add_argument(
+        "-cf",
+        "--compress-figures",
+        action="store_true",
+        help="compress referenced PDF figures, but not paper.pdf",
+    )
+    result.add_argument(
         "-p",
         "--publish",
         "--package",
@@ -498,8 +504,9 @@ def main() -> None:
         return_code = run_build(command, tool_dir, args.verbose, warnings_file)
         if return_code != 0:
             sys.exit(return_code)
-        if args.compress:
+        if args.compress or args.compress_figures:
             compress_figure_pdfs(paper_dir)
+        if args.compress:
             compress_pdf(paper_dir)
         if args.publish:
             create_taps_package(paper_dir)

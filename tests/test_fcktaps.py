@@ -23,6 +23,15 @@ class CompressPdfTests(unittest.TestCase):
                 args = FCKTAPS.parser().parse_args([alias, "paper.docx"])
                 self.assertTrue(args.compress)
 
+    def test_compress_figures_aliases_do_not_enable_final_pdf_compression(
+        self,
+    ) -> None:
+        for alias in ("-cf", "--compress-figures"):
+            with self.subTest(alias=alias):
+                args = FCKTAPS.parser().parse_args([alias, "paper.docx"])
+                self.assertTrue(args.compress_figures)
+                self.assertFalse(args.compress)
+
     def test_compression_replaces_pdf_after_success(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
@@ -198,7 +207,9 @@ class TapsPackageTests(unittest.TestCase):
 
             self.assertFalse((paper_dir / "paper.zip").exists())
 
-    def test_compression_is_independent_and_runs_before_packaging(self) -> None:
+    def test_compression_modes_are_independent_and_run_before_packaging(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             paper_dir = root / "paper"
@@ -240,8 +251,15 @@ class TapsPackageTests(unittest.TestCase):
                 return events
 
             self.assertEqual(run_cli("-c"), ["figures", "compress"])
+            self.assertEqual(run_cli("-cf"), ["figures"])
+            self.assertEqual(
+                run_cli("--compress-figures", "-p"), ["figures", "package"]
+            )
             self.assertEqual(
                 run_cli("-c", "-p"), ["figures", "compress", "package"]
+            )
+            self.assertEqual(
+                run_cli("-c", "-cf"), ["figures", "compress"]
             )
 
 

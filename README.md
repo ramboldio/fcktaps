@@ -66,6 +66,13 @@ PDF only after Ghostscript succeeds; persistent source files in
 ./fcktaps --compress "/path/to/manuscript.docx"
 ```
 
+Pass `-cf` or `--compress-figures` to compress only the referenced PDF figures
+while leaving the built `paper.pdf` unchanged:
+
+```sh
+./fcktaps --compress-figures "/path/to/manuscript.docx"
+```
+
 Pass `-p`, `--publish`, or `--package` to create `paper.zip` after a successful
 build. These three flags are aliases. The ZIP follows the ACM TAPS directory
 layout: `source/` contains `paper.tex`, the bibliography, and exactly the
@@ -78,7 +85,8 @@ figures referenced by the generated LaTeX; `pdf/` contains `paper.pdf`.
 The TAPS dashboard supplies the required final archive name in the form
 `ProceedingAcronym-PaperID.zip`; rename `paper.zip` to that value before upload.
 Use `-c -p` together to compress the PDF before it is added to the package.
-Compression is independent, so `-c` also works without any publishing flag.
+Use `-cf -p` to package compressed figure sources with the original final PDF.
+Both compression modes are independent and work without any publishing flag.
 
 Use `make clean` from either the toolkit or paper directory to remove generated
 files. Cleaning removes only `figures/media`; it preserves `figures/override`
