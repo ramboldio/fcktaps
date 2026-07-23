@@ -56,6 +56,14 @@ For a paper directory elsewhere, pass it separately:
 
 The default target converts the `.docx` to Pandoc JSON, extracts and converts
 figures, applies the fcktaps filters, emits ACM LaTeX, and builds `paper.pdf`.
+Pass `-c` or `--compress` to run Ghostscript after a successful build. The
+compressed result atomically replaces `paper.pdf`; a failed compression leaves
+the built PDF intact.
+
+```sh
+./fcktaps --compress "/path/to/manuscript.docx"
+```
+
 Use `make clean` from either the toolkit or paper directory to remove generated
 files. Cleaning removes only `figures/media`; it preserves `figures/override`
 and the paper-local `frontmatter` directory. If the paper directory is not

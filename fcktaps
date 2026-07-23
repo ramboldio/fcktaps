@@ -34,6 +34,12 @@ def parser() -> argparse.ArgumentParser:
         epilog="Run 'fcktaps init [PATH]' to create a new paper directory.",
     )
     result.add_argument("-V", "--verbose", action="store_true", help="show the complete Pandoc, BibTeX, and LaTeX output")
+    result.add_argument(
+        "-c",
+        "--compress",
+        action="store_true",
+        help="compress paper.pdf with Ghostscript after building",
+    )
     result.add_argument("--paper-dir", metavar="PATH", help="paper working directory (default: ../paper)")
     result.add_argument("document", metavar="DOCUMENT.docx", help="Word manuscript to process")
     return result
@@ -279,6 +285,47 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
     return return_code
 
 
+def compress_pdf(paper_dir: Path) -> None:
+    """Compress paper.pdf with Ghostscript, replacing it only after success."""
+    paper_pdf = paper_dir / "paper.pdf"
+    compressed_pdf = paper_dir / "paper-compressed.pdf"
+    if not paper_pdf.is_file():
+        raise RuntimeError(f"PDF not found after build: {paper_pdf}")
+
+    command = [
+        "gs",
+        "-sDEVICE=pdfwrite",
+        "-dCompatibilityLevel=1.7",
+        "-dNOPAUSE",
+        "-dQUIET",
+        "-dBATCH",
+        "-dDetectDuplicateImages=true",
+        "-dCompressFonts=true",
+        "-dSubsetFonts=true",
+        "-sOutputFile=paper-compressed.pdf",
+        "paper.pdf",
+    ]
+    try:
+        result = subprocess.run(command, cwd=paper_dir, check=False)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Ghostscript executable 'gs' was not found; install Ghostscript "
+            "or build without --compress."
+        ) from error
+
+    if result.returncode != 0:
+        compressed_pdf.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Ghostscript compression failed with exit code {result.returncode}."
+        )
+    if not compressed_pdf.is_file() or compressed_pdf.stat().st_size == 0:
+        compressed_pdf.unlink(missing_ok=True)
+        raise RuntimeError("Ghostscript did not produce paper-compressed.pdf.")
+
+    compressed_pdf.replace(paper_pdf)
+    print(f"Compressed PDF: {paper_pdf}")
+
+
 def main() -> None:
     if sys.argv[1:2] == ["init"]:
         init_paper_dir(sys.argv[2:])
@@ -307,7 +354,15 @@ def main() -> None:
     ]
     warnings_file = paper_dir / ".fcktaps-warnings"
     try:
-        sys.exit(run_build(command, tool_dir, args.verbose, warnings_file))
+        return_code = run_build(command, tool_dir, args.verbose, warnings_file)
+        if return_code != 0:
+            sys.exit(return_code)
+        if args.compress:
+            compress_pdf(paper_dir)
+        sys.exit(0)
+    except RuntimeError as error:
+        print_messages([f"ERROR -- {error}"])
+        sys.exit(1)
     except KeyboardInterrupt:
         print("\nBuild interrupted.", file=sys.stderr)
         sys.exit(130)
