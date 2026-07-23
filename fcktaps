@@ -298,7 +298,13 @@ def main() -> None:
     if not paper_dir.is_dir():
         parser().error(f"paper directory not found: {paper_dir}")
 
-    command = ["make", f"DOCX={document}", f"PAPER_DIR={paper_dir}"]
+    command = [
+        "make",
+        f"DOCX={document}",
+        f"PAPER_DIR={paper_dir}",
+        "clean",
+        "all",
+    ]
     warnings_file = paper_dir / ".fcktaps-warnings"
     try:
         sys.exit(run_build(command, tool_dir, args.verbose, warnings_file))
