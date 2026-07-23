@@ -3,6 +3,7 @@ import importlib.util
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -74,6 +75,103 @@ class CompressPdfTests(unittest.TestCase):
 
             self.assertEqual(paper_pdf.read_bytes(), b"original")
             self.assertFalse((paper_dir / "paper-compressed.pdf").exists())
+
+
+class TapsPackageTests(unittest.TestCase):
+    def test_publish_aliases(self) -> None:
+        for alias in ("-p", "--publish", "--package"):
+            with self.subTest(alias=alias):
+                args = FCKTAPS.parser().parse_args([alias, "paper.docx"])
+                self.assertTrue(args.publish)
+
+    def test_package_contains_required_taps_layout_and_referenced_sources(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paper_dir = Path(directory)
+            media_dir = paper_dir / "figures" / "media"
+            media_dir.mkdir(parents=True)
+            (paper_dir / "paper.tex").write_text(
+                "\\includegraphics{figures/media/image1.pdf}\n"
+                "\\bibliography{zotero}\n",
+                encoding="utf8",
+            )
+            (paper_dir / "paper.pdf").write_bytes(b"pdf")
+            (paper_dir / "zotero.bib").write_text("@book{x}", encoding="utf8")
+            (media_dir / "image1.pdf").write_bytes(b"figure")
+            (media_dir / "unused.pdf").write_bytes(b"unused")
+
+            package_path = FCKTAPS.create_taps_package(paper_dir)
+
+            with zipfile.ZipFile(package_path) as package:
+                self.assertEqual(
+                    set(package.namelist()),
+                    {
+                        "source/",
+                        "pdf/",
+                        "source/paper.tex",
+                        "source/zotero.bib",
+                        "source/figures/media/image1.pdf",
+                        "pdf/paper.pdf",
+                    },
+                )
+                self.assertEqual(
+                    package.read("source/figures/media/image1.pdf"), b"figure"
+                )
+                self.assertEqual(package.read("pdf/paper.pdf"), b"pdf")
+
+    def test_package_rejects_a_missing_referenced_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paper_dir = Path(directory)
+            (paper_dir / "paper.tex").write_text(
+                "\\includegraphics{figures/media/missing.pdf}\n",
+                encoding="utf8",
+            )
+            (paper_dir / "paper.pdf").write_bytes(b"pdf")
+
+            with self.assertRaisesRegex(RuntimeError, "source file not found"):
+                FCKTAPS.create_taps_package(paper_dir)
+
+            self.assertFalse((paper_dir / "paper.zip").exists())
+
+    def test_compression_is_independent_and_runs_before_packaging(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paper_dir = root / "paper"
+            paper_dir.mkdir()
+            document = root / "paper.docx"
+            document.write_bytes(b"docx")
+
+            def run_cli(*flags: str) -> list[str]:
+                events = []
+                arguments = [
+                    "fcktaps",
+                    *flags,
+                    "--paper-dir",
+                    str(paper_dir),
+                    str(document),
+                ]
+                with (
+                    patch.object(FCKTAPS.sys, "argv", arguments),
+                    patch.object(FCKTAPS, "run_build", return_value=0),
+                    patch.object(
+                        FCKTAPS,
+                        "compress_pdf",
+                        side_effect=lambda _: events.append("compress"),
+                    ),
+                    patch.object(
+                        FCKTAPS,
+                        "create_taps_package",
+                        side_effect=lambda _: events.append("package"),
+                    ),
+                    self.assertRaises(SystemExit) as exit_context,
+                ):
+                    FCKTAPS.main()
+                self.assertEqual(exit_context.exception.code, 0)
+                return events
+
+            self.assertEqual(run_cli("-c"), ["compress"])
+            self.assertEqual(run_cli("-c", "-p"), ["compress", "package"])
 
 
 if __name__ == "__main__":
