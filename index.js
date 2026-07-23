@@ -322,6 +322,29 @@ const get_anchor_ref = (block) => {
   return undefined;
 };
 
+const remove_matching_empty_anchor = (value, reference_id) => {
+  if (Array.isArray(value)) {
+    return value
+      .map(child => remove_matching_empty_anchor(child, reference_id))
+      .filter(child => child !== undefined);
+  }
+  if (!value || typeof value !== "object") return value;
+  if (
+    value.t === "Span" &&
+    value.c[0][0] === reference_id &&
+    value.c[0][1].includes("anchor") &&
+    value.c[1].length === 0
+  ) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      remove_matching_empty_anchor(child, reference_id),
+    ])
+  );
+};
+
 const assign_figure_reference_ids = (blocks) => {
   const targets_by_figure = new Map();
   visit_ast(blocks, node => {
@@ -357,11 +380,16 @@ const assign_figure_reference_ids = (blocks) => {
         `"${reference_id}"`
       );
     }
-    if (existing_id || !reference_id) return block;
+    const final_id = existing_id || reference_id;
+    if (!final_id) return block;
 
     return {
       ...block,
-      c: [[reference_id, block.c[0][1], block.c[0][2]], block.c[1], block.c[2]],
+      c: [
+        [final_id, block.c[0][1], block.c[0][2]],
+        remove_matching_empty_anchor(block.c[1], final_id),
+        block.c[2],
+      ],
     };
   });
 };
