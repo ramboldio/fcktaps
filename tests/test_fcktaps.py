@@ -69,12 +69,44 @@ class CompressPdfTests(unittest.TestCase):
 
             with patch.object(FCKTAPS.subprocess, "run", side_effect=failed_run):
                 with self.assertRaisesRegex(
-                    RuntimeError, "compression failed with exit code 1"
+                    RuntimeError, "with exit code 1"
                 ):
                     FCKTAPS.compress_pdf(paper_dir)
 
             self.assertEqual(paper_pdf.read_bytes(), b"original")
             self.assertFalse((paper_dir / "paper-compressed.pdf").exists())
+
+    def test_only_referenced_pdf_figures_are_compressed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paper_dir = Path(directory)
+            media_dir = paper_dir / "figures" / "media"
+            media_dir.mkdir(parents=True)
+            (paper_dir / "paper.tex").write_text(
+                "\\includegraphics{figures/media/image1.pdf}\n"
+                "\\includegraphics{figures/media/image2.png}\n",
+                encoding="utf8",
+            )
+            (media_dir / "image1.pdf").write_bytes(b"pdf figure")
+            (media_dir / "image2.png").write_bytes(b"png figure")
+            (media_dir / "unused.pdf").write_bytes(b"unused")
+
+            def successful_run(command, *, cwd, check):
+                self.assertEqual(command[-2:], [
+                    "-sOutputFile=image1-compressed.pdf",
+                    "image1.pdf",
+                ])
+                self.assertEqual(cwd, media_dir.resolve())
+                self.assertFalse(check)
+                (media_dir / "image1-compressed.pdf").write_bytes(b"compressed")
+                return subprocess.CompletedProcess(command, 0)
+
+            with patch.object(FCKTAPS.subprocess, "run", side_effect=successful_run):
+                count = FCKTAPS.compress_figure_pdfs(paper_dir)
+
+            self.assertEqual(count, 1)
+            self.assertEqual((media_dir / "image1.pdf").read_bytes(), b"compressed")
+            self.assertEqual((media_dir / "image2.png").read_bytes(), b"png figure")
+            self.assertEqual((media_dir / "unused.pdf").read_bytes(), b"unused")
 
 
 class TapsPackageTests(unittest.TestCase):
@@ -156,6 +188,11 @@ class TapsPackageTests(unittest.TestCase):
                     patch.object(FCKTAPS, "run_build", return_value=0),
                     patch.object(
                         FCKTAPS,
+                        "compress_figure_pdfs",
+                        side_effect=lambda _: events.append("figures"),
+                    ),
+                    patch.object(
+                        FCKTAPS,
                         "compress_pdf",
                         side_effect=lambda _: events.append("compress"),
                     ),
@@ -170,8 +207,10 @@ class TapsPackageTests(unittest.TestCase):
                 self.assertEqual(exit_context.exception.code, 0)
                 return events
 
-            self.assertEqual(run_cli("-c"), ["compress"])
-            self.assertEqual(run_cli("-c", "-p"), ["compress", "package"])
+            self.assertEqual(run_cli("-c"), ["figures", "compress"])
+            self.assertEqual(
+                run_cli("-c", "-p"), ["figures", "compress", "package"]
+            )
 
 
 if __name__ == "__main__":

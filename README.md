@@ -56,9 +56,11 @@ For a paper directory elsewhere, pass it separately:
 
 The default target converts the `.docx` to Pandoc JSON, extracts and converts
 figures, applies the fcktaps filters, emits ACM LaTeX, and builds `paper.pdf`.
-Pass `-c` or `--compress` to run Ghostscript after a successful build. The
-compressed result atomically replaces `paper.pdf`; a failed compression leaves
-the built PDF intact.
+Pass `-c` or `--compress` to run Ghostscript after a successful build. It
+compresses `paper.pdf` and every referenced PDF figure in the generated
+`figures/media` tree. Each compressed result atomically replaces its generated
+PDF only after Ghostscript succeeds; persistent source files in
+`figures/override` are never modified.
 
 ```sh
 ./fcktaps --compress "/path/to/manuscript.docx"

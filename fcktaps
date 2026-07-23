@@ -44,7 +44,7 @@ def parser() -> argparse.ArgumentParser:
         "-c",
         "--compress",
         action="store_true",
-        help="compress paper.pdf with Ghostscript after building",
+        help="compress paper.pdf and referenced PDF figures after building",
     )
     result.add_argument(
         "-p",
@@ -299,13 +299,11 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
     return return_code
 
 
-def compress_pdf(paper_dir: Path) -> None:
-    """Compress paper.pdf with Ghostscript, replacing it only after success."""
-    paper_pdf = paper_dir / "paper.pdf"
-    compressed_pdf = paper_dir / "paper-compressed.pdf"
-    if not paper_pdf.is_file():
-        raise RuntimeError(f"PDF not found after build: {paper_pdf}")
-
+def ghostscript_compress(pdf_path: Path) -> None:
+    """Compress one PDF with Ghostscript, replacing it only after success."""
+    compressed_pdf = pdf_path.with_name(f"{pdf_path.stem}-compressed.pdf")
+    if not pdf_path.is_file():
+        raise RuntimeError(f"PDF not found after build: {pdf_path}")
     command = [
         "gs",
         "-sDEVICE=pdfwrite",
@@ -316,11 +314,11 @@ def compress_pdf(paper_dir: Path) -> None:
         "-dDetectDuplicateImages=true",
         "-dCompressFonts=true",
         "-dSubsetFonts=true",
-        "-sOutputFile=paper-compressed.pdf",
-        "paper.pdf",
+        f"-sOutputFile={compressed_pdf.name}",
+        pdf_path.name,
     ]
     try:
-        result = subprocess.run(command, cwd=paper_dir, check=False)
+        result = subprocess.run(command, cwd=pdf_path.parent, check=False)
     except FileNotFoundError as error:
         raise RuntimeError(
             "Ghostscript executable 'gs' was not found; install Ghostscript "
@@ -330,13 +328,22 @@ def compress_pdf(paper_dir: Path) -> None:
     if result.returncode != 0:
         compressed_pdf.unlink(missing_ok=True)
         raise RuntimeError(
-            f"Ghostscript compression failed with exit code {result.returncode}."
+            f"Ghostscript compression failed for {pdf_path} "
+            f"with exit code {result.returncode}."
         )
     if not compressed_pdf.is_file() or compressed_pdf.stat().st_size == 0:
         compressed_pdf.unlink(missing_ok=True)
-        raise RuntimeError("Ghostscript did not produce paper-compressed.pdf.")
+        raise RuntimeError(
+            f"Ghostscript did not produce the compressed PDF for {pdf_path}."
+        )
 
-    compressed_pdf.replace(paper_pdf)
+    compressed_pdf.replace(pdf_path)
+
+
+def compress_pdf(paper_dir: Path) -> None:
+    """Compress the built paper PDF."""
+    paper_pdf = paper_dir / "paper.pdf"
+    ghostscript_compress(paper_pdf)
     print(f"Compressed PDF: {paper_pdf}")
 
 
@@ -378,6 +385,25 @@ def package_source_files(paper_dir: Path, tex_path: Path) -> list[Path]:
             )
         source_files.append(source_path)
     return source_files
+
+
+def compress_figure_pdfs(paper_dir: Path) -> int:
+    """Compress only PDF artwork referenced by the generated paper.tex."""
+    tex_path = paper_dir / "paper.tex"
+    if not tex_path.is_file():
+        raise RuntimeError(f"generated LaTeX not found after build: {tex_path}")
+
+    figure_pdfs = [
+        source_file
+        for source_file in package_source_files(paper_dir, tex_path)
+        if source_file.suffix.lower() == ".pdf"
+    ]
+    for figure_pdf in figure_pdfs:
+        ghostscript_compress(figure_pdf)
+
+    noun = "figure PDF" if len(figure_pdfs) == 1 else "figure PDFs"
+    print(f"Compressed {len(figure_pdfs)} referenced {noun}.")
+    return len(figure_pdfs)
 
 
 def create_taps_package(paper_dir: Path) -> Path:
@@ -447,6 +473,7 @@ def main() -> None:
         if return_code != 0:
             sys.exit(return_code)
         if args.compress:
+            compress_figure_pdfs(paper_dir)
             compress_pdf(paper_dir)
         if args.publish:
             create_taps_package(paper_dir)
