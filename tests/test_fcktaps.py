@@ -262,6 +262,35 @@ class TapsPackageTests(unittest.TestCase):
                 run_cli("-c", "-cf"), ["figures", "compress"]
             )
 
+    def test_cli_build_starts_with_clean_then_all(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paper_dir = root / "paper"
+            paper_dir.mkdir()
+            document = root / "paper.docx"
+            document.write_bytes(b"docx")
+            commands = []
+
+            def successful_build(command, cwd, verbose, warnings_file):
+                commands.append(command)
+                return 0
+
+            arguments = [
+                "fcktaps",
+                "--paper-dir",
+                str(paper_dir),
+                str(document),
+            ]
+            with (
+                patch.object(FCKTAPS.sys, "argv", arguments),
+                patch.object(FCKTAPS, "run_build", side_effect=successful_build),
+                self.assertRaises(SystemExit) as exit_context,
+            ):
+                FCKTAPS.main()
+
+            self.assertEqual(exit_context.exception.code, 0)
+            self.assertEqual(commands[0][-2:], ["clean", "all"])
+
 
 if __name__ == "__main__":
     unittest.main()

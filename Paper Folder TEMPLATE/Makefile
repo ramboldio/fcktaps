@@ -67,7 +67,8 @@ paper.pdf: paper.tex zotero.bib
 	pdflatex -interaction=nonstopmode paper.tex
 
 clean:
-	rm -f paper.json paper_indexed.json paper_filtered.json paper.tex paper_unpatched.tex paper.pdf
+	rm -f paper.json paper_indexed.json paper_filtered.json paper.tex paper_unpatched.tex
+	rm -f paper.pdf paper.zip paper-compressed.pdf .paper.zip.tmp
 	rm -f paper.bbl paper.blg paper.aux paper.log paper.out comment.cut figures-converted figure-overrides
 	# Persistent figure overrides and frontmatter live outside generated media.
 	rm -rf figures/media

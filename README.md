@@ -89,9 +89,11 @@ Use `-cf -p` to package compressed figure sources with the original final PDF.
 Both compression modes are independent and work without any publishing flag.
 
 Use `make clean` from either the toolkit or paper directory to remove generated
-files. Cleaning removes only `figures/media`; it preserves `figures/override`
-and the paper-local `frontmatter` directory. If the paper directory is not
-next to this repository, also pass the checkout path, for example
+files, including `paper.pdf`, `paper.zip`, and interrupted compression/package
+temporary files. Cleaning removes `figures/media`; it preserves
+`figures/override` and the paper-local `frontmatter` directory. Every
+`fcktaps` build runs this cleanup before rebuilding. If the paper directory is
+not next to this repository, also pass the checkout path, for example
 `FCKTAPS=/path/to/fcktaps`.
 
 The build warns when the paper title or a section heading is not in title case.
