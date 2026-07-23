@@ -108,6 +108,38 @@ class CompressPdfTests(unittest.TestCase):
             self.assertEqual((media_dir / "image2.png").read_bytes(), b"png figure")
             self.assertEqual((media_dir / "unused.pdf").read_bytes(), b"unused")
 
+    def test_u_override_flag_skips_figure_compression(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paper_dir = Path(directory)
+            media_dir = paper_dir / "figures" / "media"
+            override_dir = paper_dir / "figures" / "override"
+            media_dir.mkdir(parents=True)
+            override_dir.mkdir()
+            (paper_dir / "paper.tex").write_text(
+                "\\includegraphics{figures/media/image1.pdf}\n"
+                "\\includegraphics{figures/media/image2.pdf}\n",
+                encoding="utf8",
+            )
+            (media_dir / "image1.pdf").write_bytes(b"keep original")
+            (media_dir / "image2.pdf").write_bytes(b"compress me")
+            (override_dir / "figure1-u--detailed-artwork.pdf").write_bytes(
+                b"override"
+            )
+
+            def successful_run(command, *, cwd, check):
+                self.assertEqual(command[-1], "image2.pdf")
+                (media_dir / "image2-compressed.pdf").write_bytes(b"compressed")
+                return subprocess.CompletedProcess(command, 0)
+
+            with patch.object(FCKTAPS.subprocess, "run", side_effect=successful_run):
+                count = FCKTAPS.compress_figure_pdfs(paper_dir)
+
+            self.assertEqual(count, 1)
+            self.assertEqual(
+                (media_dir / "image1.pdf").read_bytes(), b"keep original"
+            )
+            self.assertEqual((media_dir / "image2.pdf").read_bytes(), b"compressed")
+
 
 class TapsPackageTests(unittest.TestCase):
     def test_publish_aliases(self) -> None:

@@ -110,6 +110,9 @@ generated LaTeX prefers the override PDF. `make clean` preserves this directory.
 Add `-h` after the figure number, as in
 `figure5-h--calibration-patterns.pdf`, to force that figure's LaTeX placement
 from `[h]` to `[H]` using the `float` package.
+Add `-u`, as in `figure5-u--calibration-patterns.pdf`, to leave that override's
+generated PDF copy uncompressed when `-c` is used. The flags may be combined in
+either order, for example `figure5-h-u--calibration-patterns.pdf`.
 
 Each LaTeX figure contains exactly one artwork file. If a Word figure contains
 multiple embedded images, the build selects its first image and warns unless a

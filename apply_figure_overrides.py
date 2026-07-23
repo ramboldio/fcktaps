@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 NAME_PATTERN = re.compile(
-    r"^(?P<target>figure(?P<number>[1-9]\d*)(?:-(?P<placement>h))?)"
+    r"^(?P<target>figure(?P<number>[1-9]\d*)(?P<flags>(?:-[hu])*))"
     r"--(?P<description>[a-z0-9]+(?:[-+][a-z0-9]+)*)"
     r"(?P<extension>\.[A-Za-z0-9]+)$"
 )
@@ -19,6 +19,14 @@ NAME_PATTERN = re.compile(
 SINGLE_COLUMN_WIDTH_IN = 3.33
 DOUBLE_COLUMN_WIDTH_IN = 7.0
 SIZE_TOLERANCE_IN = 0.05
+
+
+def override_flags(match: re.Match) -> set[str]:
+    """Return unique shorthand flags parsed from an override filename."""
+    flags = [flag for flag in match.group("flags").split("-") if flag]
+    if len(flags) != len(set(flags)):
+        raise ValueError("override filename repeats a shorthand flag")
+    return set(flags)
 
 
 def warn(message: str) -> None:
@@ -147,10 +155,15 @@ def main() -> None:
             continue
 
         match = NAME_PATTERN.fullmatch(source.name)
+        try:
+            flags = override_flags(match) if match else set()
+        except ValueError:
+            match = None
+            flags = set()
         if not match:
             print(
                 f"Invalid override name: {source.name}\n"
-                "Expected: figure<number>[-h]--<descriptive-slug>.<extension>",
+                "Expected: figure<number>[-h][-u]--<descriptive-slug>.<extension>",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -188,7 +201,11 @@ def main() -> None:
         warn_about_format_and_size(source, figure_number)
         shutil.copy2(source, target)
         seen_targets.add(figure_number)
-        print(f"  override: {source.name} → Figure {figure_number} ({target.name})")
+        flag_summary = f", flags: {','.join(sorted(flags))}" if flags else ""
+        print(
+            f"  override: {source.name} → Figure {figure_number} "
+            f"({target.name}{flag_summary})"
+        )
 
 
 if __name__ == "__main__":

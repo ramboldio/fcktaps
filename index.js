@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const FIGURE_OVERRIDE_PATTERN =
-  /^figure([1-9]\d*)(?:-(h))?--[a-z0-9]+(?:[-+][a-z0-9]+)*(\.[A-Za-z0-9]+)$/;
+  /^figure([1-9]\d*)((?:-[hu])*)--[a-z0-9]+(?:[-+][a-z0-9]+)*(\.[A-Za-z0-9]+)$/;
 
 const FIGURE_PLACEMENT_ATTRIBUTE = "fcktaps-latex-placement";
 
@@ -298,11 +298,14 @@ const find_figure_override = (figure_number, image_path) => {
   const matches = entries.flatMap(entry => {
     if (!entry.isFile() || entry.name === "README.md" || entry.name.startsWith(".")) return [];
     const match = entry.name.match(FIGURE_OVERRIDE_PATTERN);
-    return match && Number(match[1]) === figure_number ? [match] : [];
+    if (!match || Number(match[1]) !== figure_number) return [];
+    const flags = match[2].split("-").filter(Boolean);
+    if (flags.length !== new Set(flags).size) return [];
+    return [{ flags: new Set(flags), extension: match[3] }];
   });
   if (matches.length !== 1) return null;
 
-  const extension = matches[0][3];
+  const extension = matches[0].extension;
   if (extension.toLowerCase() === ".pdf") return matches[0];
 
   // Non-PDF overrides are accepted only when their extension matches an
@@ -434,7 +437,7 @@ const normalize_figures = (blocks) => {
 
     const attributes = block.c[0];
     const keyValues = attributes[2].filter(([key]) => key !== FIGURE_PLACEMENT_ATTRIBUTE);
-    if (override?.[2] === "h") keyValues.push([FIGURE_PLACEMENT_ATTRIBUTE, "H"]);
+    if (override?.flags.has("h")) keyValues.push([FIGURE_PLACEMENT_ATTRIBUTE, "H"]);
 
     return {
       ...block,

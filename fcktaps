@@ -12,6 +12,8 @@ import time
 import zipfile
 from pathlib import Path
 
+from apply_figure_overrides import NAME_PATTERN as FIGURE_OVERRIDE_NAME_PATTERN
+from apply_figure_overrides import override_flags
 from report_warnings import print_messages, read_messages
 
 
@@ -393,16 +395,40 @@ def compress_figure_pdfs(paper_dir: Path) -> int:
     if not tex_path.is_file():
         raise RuntimeError(f"generated LaTeX not found after build: {tex_path}")
 
-    figure_pdfs = [
-        source_file
-        for source_file in package_source_files(paper_dir, tex_path)
-        if source_file.suffix.lower() == ".pdf"
-    ]
+    # Validate all TeX dependencies before changing generated files.
+    package_source_files(paper_dir, tex_path)
+
+    uncompressed_figures = set()
+    override_dir = paper_dir / "figures" / "override"
+    if override_dir.is_dir():
+        for override in override_dir.iterdir():
+            if not override.is_file():
+                continue
+            match = FIGURE_OVERRIDE_NAME_PATTERN.fullmatch(override.name)
+            if match and "u" in override_flags(match):
+                uncompressed_figures.add(int(match.group("number")))
+
+    figure_pdfs = []
+    skipped = 0
+    tex = tex_path.read_text(encoding="utf8")
+    for figure_number, graphic in enumerate(INCLUDE_GRAPHICS.findall(tex), 1):
+        figure_pdf = (paper_dir / graphic.strip()).resolve()
+        if figure_pdf.suffix.lower() != ".pdf":
+            continue
+        if figure_number in uncompressed_figures:
+            skipped += 1
+            continue
+        figure_pdfs.append(figure_pdf)
+
     for figure_pdf in figure_pdfs:
         ghostscript_compress(figure_pdf)
 
     noun = "figure PDF" if len(figure_pdfs) == 1 else "figure PDFs"
-    print(f"Compressed {len(figure_pdfs)} referenced {noun}.")
+    message = f"Compressed {len(figure_pdfs)} referenced {noun}."
+    if skipped:
+        skip_noun = "figure" if skipped == 1 else "figures"
+        message += f" Skipped {skipped} {skip_noun} marked -u."
+    print(message)
     return len(figure_pdfs)
 
 
