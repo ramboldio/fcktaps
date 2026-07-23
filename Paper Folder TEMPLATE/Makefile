@@ -6,9 +6,11 @@ FRONTMATTER_DIR ?= frontmatter
 FRONTMATTER_FILES := $(addprefix $(FRONTMATTER_DIR)/,authors.tex ccs.tex rights.tex)
 WARNINGS_FILE ?= .fcktaps-warnings
 
-.PHONY: all clean check-input check-packages paper_indexed.json figure-overrides
+.PHONY: all prepare compile clean check-input check-packages paper_indexed.json figure-overrides
 
-all: check-packages paper.pdf
+all: prepare paper.pdf
+
+prepare: check-packages
 
 check-input:
 	@test -n "$(DOCX)" || { \
@@ -61,6 +63,12 @@ check-packages: paper.tex
 		python3 "$(FCKTAPS)/check_latex_packages.py" paper.tex
 
 paper.pdf: paper.tex zotero.bib
+	-pdflatex -interaction=nonstopmode paper.tex
+	-bibtex paper
+	-pdflatex -interaction=nonstopmode paper.tex
+	pdflatex -interaction=nonstopmode paper.tex
+
+compile:
 	-pdflatex -interaction=nonstopmode paper.tex
 	-bibtex paper
 	-pdflatex -interaction=nonstopmode paper.tex

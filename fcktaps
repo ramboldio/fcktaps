@@ -46,13 +46,13 @@ def parser() -> argparse.ArgumentParser:
         "-c",
         "--compress",
         action="store_true",
-        help="compress paper.pdf and referenced PDF figures after building",
+        help="compress referenced PDF figures before building, then compress paper.pdf",
     )
     result.add_argument(
         "-cf",
         "--compress-figures",
         action="store_true",
-        help="compress referenced PDF figures, but not paper.pdf",
+        help="compress referenced PDF figures before building, but not paper.pdf",
     )
     result.add_argument(
         "-p",
@@ -236,7 +236,15 @@ def latex_error(lines: list[str]) -> str | None:
     return f"{message} ({context})" if context else message
 
 
-def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path) -> int:
+def run_build(
+    command: list[str],
+    cwd: Path,
+    verbose: bool,
+    warnings_file: Path,
+    *,
+    status_label: str = "LaTeX",
+    defer_success_messages: bool = False,
+) -> int:
     environment = dict(os.environ)
     environment["FCKTAPS_SUPPRESS_WARNING_DISPLAY"] = "1"
     process = subprocess.Popen(
@@ -265,13 +273,16 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
 
     interactive = sys.stderr.isatty()
     if not verbose and not interactive:
-        print("LaTeX is running...", file=sys.stderr)
+        print(f"{status_label} is running...", file=sys.stderr)
 
     frame = 0
     try:
         while process.poll() is None:
             if not verbose and interactive:
-                sys.stderr.write(f"\r\033[2K{SPINNER[frame % len(SPINNER)]} LaTeX is running…")
+                sys.stderr.write(
+                    f"\r\033[2K{SPINNER[frame % len(SPINNER)]} "
+                    f"{status_label} is running…"
+                )
                 sys.stderr.flush()
                 frame += 1
             time.sleep(0.08)
@@ -286,16 +297,18 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
             sys.stderr.flush()
 
     return_code = process.returncode
-    messages = read_messages(warnings_file)
-    messages.extend(
-        message
-        for message in acm_warnings(lines, warnings_file.parent / "paper.tex")
-        if message not in messages
-    )
+    messages = []
+    if not defer_success_messages or return_code != 0:
+        messages = read_messages(warnings_file)
+        messages.extend(
+            message
+            for message in acm_warnings(lines, warnings_file.parent / "paper.tex")
+            if message not in messages
+        )
 
     if return_code == 0:
         if not verbose:
-            print("LaTeX finished.", file=sys.stderr)
+            print(f"{status_label} finished.", file=sys.stderr)
     else:
         error = latex_error(lines) or (
             f"Build failed with exit code {return_code}. "
@@ -303,7 +316,8 @@ def run_build(command: list[str], cwd: Path, verbose: bool, warnings_file: Path)
         )
         messages.insert(0, f"ERROR -- {error}")
 
-    print_messages(messages)
+    if messages:
+        print_messages(messages)
     return return_code
 
 
@@ -492,20 +506,43 @@ def main() -> None:
     if not paper_dir.is_dir():
         parser().error(f"paper directory not found: {paper_dir}")
 
-    command = [
+    command_prefix = [
         "make",
         f"DOCX={document}",
         f"PAPER_DIR={paper_dir}",
-        "clean",
-        "all",
     ]
     warnings_file = paper_dir / ".fcktaps-warnings"
     try:
-        return_code = run_build(command, tool_dir, args.verbose, warnings_file)
+        if args.compress or args.compress_figures:
+            prepare_command = [*command_prefix, "clean", "prepare"]
+            return_code = run_build(
+                prepare_command,
+                tool_dir,
+                args.verbose,
+                warnings_file,
+                status_label="Source preparation",
+                defer_success_messages=True,
+            )
+            if return_code != 0:
+                sys.exit(return_code)
+            compress_figure_pdfs(paper_dir)
+            pdf_command = [*command_prefix, "pdf"]
+            return_code = run_build(
+                pdf_command,
+                tool_dir,
+                args.verbose,
+                warnings_file,
+            )
+        else:
+            command = [*command_prefix, "clean", "all"]
+            return_code = run_build(
+                command,
+                tool_dir,
+                args.verbose,
+                warnings_file,
+            )
         if return_code != 0:
             sys.exit(return_code)
-        if args.compress or args.compress_figures:
-            compress_figure_pdfs(paper_dir)
         if args.compress:
             compress_pdf(paper_dir)
         if args.publish:

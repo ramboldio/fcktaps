@@ -228,7 +228,13 @@ class TapsPackageTests(unittest.TestCase):
                 ]
                 with (
                     patch.object(FCKTAPS.sys, "argv", arguments),
-                    patch.object(FCKTAPS, "run_build", return_value=0),
+                    patch.object(
+                        FCKTAPS,
+                        "run_build",
+                        side_effect=lambda command, *_args, **_kwargs: (
+                            events.append(f"build:{command[-1]}") or 0
+                        ),
+                    ),
                     patch.object(
                         FCKTAPS,
                         "compress_figure_pdfs",
@@ -250,16 +256,31 @@ class TapsPackageTests(unittest.TestCase):
                 self.assertEqual(exit_context.exception.code, 0)
                 return events
 
-            self.assertEqual(run_cli("-c"), ["figures", "compress"])
-            self.assertEqual(run_cli("-cf"), ["figures"])
             self.assertEqual(
-                run_cli("--compress-figures", "-p"), ["figures", "package"]
+                run_cli("-c"),
+                ["build:prepare", "figures", "build:pdf", "compress"],
             )
             self.assertEqual(
-                run_cli("-c", "-p"), ["figures", "compress", "package"]
+                run_cli("-cf"),
+                ["build:prepare", "figures", "build:pdf"],
             )
             self.assertEqual(
-                run_cli("-c", "-cf"), ["figures", "compress"]
+                run_cli("--compress-figures", "-p"),
+                ["build:prepare", "figures", "build:pdf", "package"],
+            )
+            self.assertEqual(
+                run_cli("-c", "-p"),
+                [
+                    "build:prepare",
+                    "figures",
+                    "build:pdf",
+                    "compress",
+                    "package",
+                ],
+            )
+            self.assertEqual(
+                run_cli("-c", "-cf"),
+                ["build:prepare", "figures", "build:pdf", "compress"],
             )
 
     def test_cli_build_starts_with_clean_then_all(self) -> None:
@@ -290,6 +311,34 @@ class TapsPackageTests(unittest.TestCase):
 
             self.assertEqual(exit_context.exception.code, 0)
             self.assertEqual(commands[0][-2:], ["clean", "all"])
+
+    def test_pdf_phase_compiles_without_regenerating_prepared_sources(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paper_dir = root / "paper"
+            paper_dir.mkdir()
+            document = root / "paper.docx"
+            document.write_bytes(b"docx")
+
+            result = subprocess.run(
+                [
+                    "make",
+                    "-n",
+                    f"DOCX={document}",
+                    f"PAPER_DIR={paper_dir}",
+                    "pdf",
+                ],
+                cwd=TOOL_PATH.parent,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertIn("pdflatex -interaction=nonstopmode paper.tex", result.stdout)
+            self.assertNotIn("pandoc ", result.stdout)
+            self.assertNotIn("apply_figure_overrides.py", result.stdout)
 
 
 if __name__ == "__main__":

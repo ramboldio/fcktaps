@@ -1,7 +1,7 @@
 DOCX ?=
 PAPER_DIR ?= ../paper
 
-.PHONY: all clean clear check-input
+.PHONY: all prepare pdf clean clear check-input
 
 all: check-input
 	@python3 "$(CURDIR)/report_warnings.py" clear "$(PAPER_DIR)/.fcktaps-warnings"
@@ -17,6 +17,25 @@ all: check-input
 		python3 "$(CURDIR)/report_warnings.py" show "$(PAPER_DIR)/.fcktaps-warnings"; \
 	fi; \
 	exit $$status
+
+prepare: check-input
+	@python3 "$(CURDIR)/report_warnings.py" clear "$(PAPER_DIR)/.fcktaps-warnings"
+	@DOCX_PATH="$$(cd "$$(dirname "$(DOCX)")" && pwd)/$$(basename "$(DOCX)")"; \
+	$(MAKE) -C "$(PAPER_DIR)" \
+		-f "$(CURDIR)/Paper Folder TEMPLATE/Makefile" \
+		DOCX="$$DOCX_PATH" \
+		FCKTAPS="$(CURDIR)" \
+		WARNINGS_FILE=".fcktaps-warnings" \
+		prepare
+
+pdf: check-input
+	@DOCX_PATH="$$(cd "$$(dirname "$(DOCX)")" && pwd)/$$(basename "$(DOCX)")"; \
+	$(MAKE) -C "$(PAPER_DIR)" \
+		-f "$(CURDIR)/Paper Folder TEMPLATE/Makefile" \
+		DOCX="$$DOCX_PATH" \
+		FCKTAPS="$(CURDIR)" \
+		WARNINGS_FILE=".fcktaps-warnings" \
+		compile
 
 check-input:
 	@test -n "$(DOCX)" || { \
