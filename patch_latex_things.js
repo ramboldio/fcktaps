@@ -192,15 +192,15 @@ const MetaList = (items) => ({
 				key === "fcktaps-latex-placement" && value === "H"
 			);
 			const placement = force_here ? "H" : "h";
+			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
 			const parts = [
 				RawLatex(`\\begin{figure}[${placement}]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
-				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),
-				RawLatex("}\n\\end{figure}"),
+				RawLatex(`}${label}\n\\end{figure}`),
 			);
 			return Para(parts);
 		};
@@ -214,15 +214,15 @@ const MetaList = (items) => ({
 		const render_figure_one = (figure) => {
 			const alt = get_alt_text(figure);
 			const image = get_figure_image(figure);
+			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
 			const parts = [
 				RawLatex(`\\begin{figure*}[t]\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
-				RawLatex(`\\label{${figure.c[0][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),
-				RawLatex("}\n\\end{figure*}"),
+				RawLatex(`}${label}\n\\end{figure*}`),
 			);
 			return Para(parts);
 		};
@@ -279,7 +279,7 @@ const MetaList = (items) => ({
 \\newunicodechar{×}{\\texttimes}
 \\newunicodechar{°}{\\textdegree}
 \\begin{document}
-\\hypersetup{allcolors=black}
+\\hypersetup{colorlinks=true,allcolors=black}
 			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),

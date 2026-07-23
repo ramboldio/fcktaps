@@ -322,6 +322,50 @@ const get_anchor_ref = (block) => {
   return undefined;
 };
 
+const assign_figure_reference_ids = (blocks) => {
+  const targets_by_figure = new Map();
+  visit_ast(blocks, node => {
+    if (node.t !== "Link") return;
+    const target = node.c[2][0];
+    const match = normalized_inline_text(node.c[1]).match(/^Figure\s+([1-9]\d*)$/i);
+    if (!match || !target.startsWith("#")) return;
+
+    const figure_number = Number(match[1]);
+    const targets = targets_by_figure.get(figure_number) || new Set();
+    targets.add(target.slice(1));
+    targets_by_figure.set(figure_number, targets);
+  });
+
+  let figure_number = 0;
+  return blocks.map(block => {
+    if (block.t !== "Figure") return block;
+
+    figure_number += 1;
+    const targets = [...(targets_by_figure.get(figure_number) || [])];
+    if (targets.length > 1) {
+      warn(
+        `Figure ${figure_number} has conflicting Word bookmark targets: ` +
+        targets.join(", ")
+      );
+    }
+
+    const existing_id = block.c[0][0];
+    const reference_id = targets[0];
+    if (existing_id && reference_id && existing_id !== reference_id) {
+      warn(
+        `Figure ${figure_number} uses label "${existing_id}", but Word references ` +
+        `"${reference_id}"`
+      );
+    }
+    if (existing_id || !reference_id) return block;
+
+    return {
+      ...block,
+      c: [[reference_id, block.c[0][1], block.c[0][2]], block.c[1], block.c[2]],
+    };
+  });
+};
+
 // Pandoc constructors
 const Para = (blocks) => ({ t: "Para", c: blocks });
 const Span = (blocks) => ({ t: "Span", c: [["", [], []], [...blocks]] });
@@ -647,6 +691,11 @@ const extract_uist = (doc, blocks) => {
   blocks = normalize_word_section_cross_references(blocks);
 
   warn_about_title_case(doc, blocks);
+
+  // Pandoc does not retain Word's figure bookmark anchors consistently, but
+  // it does retain the targets on links whose visible text is "Figure N".
+  // Reattach those targets to the corresponding top-level figures.
+  blocks = assign_figure_reference_ids(blocks);
 
   // A Word figure may contain several embedded images. TAPS figures must use
   // one final artwork file, so retain only the first image and report it.
