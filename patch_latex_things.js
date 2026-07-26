@@ -15,6 +15,53 @@ const load_frontmatter = () => {
 	]));
 };
 
+const load_alt_text = () => {
+	const filename = process.env.FCKTAPS_ALT_TEXT_FILE;
+	if (!filename || !fs.existsSync(filename)) return new Map();
+
+	const descriptions = new Map();
+	let currentFigure = null;
+	for (const [index, sourceLine] of fs.readFileSync(filename, "utf8").split(/\r?\n/).entries()) {
+		const line = sourceLine.trim();
+		if (!line || line.startsWith("#")) continue;
+
+		const entry = line.match(/^Figure\s+([1-9]\d*):\s*(.*)$/i);
+		if (entry) {
+			const figureNumber = Number(entry[1]);
+			if (descriptions.has(figureNumber)) {
+				throw new Error(`${filename}:${index + 1}: duplicate Figure ${figureNumber} entry`);
+			}
+			descriptions.set(figureNumber, entry[2]);
+			currentFigure = figureNumber;
+			continue;
+		}
+
+		if (currentFigure === null) {
+			throw new Error(
+				`${filename}:${index + 1}: expected "Figure N: description"`
+			);
+		}
+		const previous = descriptions.get(currentFigure);
+		descriptions.set(currentFigure, previous ? `${previous} ${line}` : line);
+	}
+	return descriptions;
+};
+
+const LATEX_TEXT_ESCAPES = {
+	"\\": "\\textbackslash{}",
+	"{": "\\{",
+	"}": "\\}",
+	"$": "\\$",
+	"&": "\\&",
+	"#": "\\#",
+	"%": "\\%",
+	"_": "\\_",
+	"~": "\\textasciitilde{}",
+	"^": "\\textasciicircum{}",
+};
+const escape_latex_text = text =>
+	text.replace(/[\\{}$&#%_~^]/g, character => LATEX_TEXT_ESCAPES[character]);
+
 // Read all stdin
 const readStdin = () => {
   return new Promise((resolve) => {
@@ -122,6 +169,7 @@ const MetaList = (items) => ({
 	readStdin().then(async (stdin_content) => {
 		const doc = JSON.parse(stdin_content);
 		const frontmatter = load_frontmatter();
+		const altText = load_alt_text();
 		
 		let blocks = doc.blocks;
 
@@ -158,11 +206,12 @@ const MetaList = (items) => ({
 			return block.t === "Image" ? block : null;
 		};
 
-		const get_alt_text = (figure) => {
+		const get_alt_text = (figure, figureNumber) => {
+			const fileDescription = altText.get(figureNumber)?.trim();
+			if (fileDescription) return fileDescription;
 			const image = get_figure_image(figure);
 			if (!image) return "";
 			const alt_inlines = image.c[1] || [];
-			// TODO make sure that this is not handled here, but in pandoc, so e.g. \% etc gets exited
 			return stringify_inlines(alt_inlines);
 		};
 
@@ -185,8 +234,8 @@ const MetaList = (items) => ({
 			return inlines;
 		};
 
-		const render_figure = (figure) => {
-			const alt = get_alt_text(figure);
+		const render_figure = (figure, figureNumber) => {
+			const alt = get_alt_text(figure, figureNumber);
 			const image = get_figure_image(figure);
 			const force_here = figure.c[0][2].some(([key, value]) =>
 				key === "fcktaps-latex-placement" && value === "H"
@@ -196,7 +245,7 @@ const MetaList = (items) => ({
 			const parts = [
 				RawLatex(`\\begin{figure}[${placement}]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
 			];
-			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
+			if (alt) parts.push(RawLatex(`\\Description{${escape_latex_text(alt)}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),
@@ -205,20 +254,22 @@ const MetaList = (items) => ({
 			return Para(parts);
 		};
 
+		let figureNumber = figure_one ? 1 : 0;
 		blocks = blocks.map(b => {
 			if (b.t === "Figure") {
-				return render_figure(b);
+				figureNumber += 1;
+				return render_figure(b, figureNumber);
 			} else return b;
 		});
 
 		const render_figure_one = (figure) => {
-			const alt = get_alt_text(figure);
+			const alt = get_alt_text(figure, 1);
 			const image = get_figure_image(figure);
 			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
 			const parts = [
 				RawLatex(`\\begin{figure*}[t]\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
 			];
-			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
+			if (alt) parts.push(RawLatex(`\\Description{${escape_latex_text(alt)}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),

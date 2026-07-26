@@ -32,8 +32,10 @@ class CleanTargetTests(unittest.TestCase):
             (media_dir / "image1.pdf").write_bytes(b"generated figure")
             persistent_override = override_dir / "figure1--overview.pdf"
             persistent_frontmatter = frontmatter_dir / "rights.tex"
+            persistent_alt_text = paper_dir / "alt-text.txt"
             persistent_override.write_bytes(b"override")
             persistent_frontmatter.write_text("rights", encoding="utf8")
+            persistent_alt_text.write_text("Figure 1: overview", encoding="utf8")
 
             subprocess.run(
                 [
@@ -55,6 +57,7 @@ class CleanTargetTests(unittest.TestCase):
             self.assertFalse(media_dir.exists())
             self.assertTrue(persistent_override.is_file())
             self.assertTrue(persistent_frontmatter.is_file())
+            self.assertTrue(persistent_alt_text.is_file())
 
 
 if __name__ == "__main__":

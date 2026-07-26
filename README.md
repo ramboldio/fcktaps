@@ -92,7 +92,7 @@ Both compression modes are independent and work without any publishing flag.
 Use `make clean` from either the toolkit or paper directory to remove generated
 files, including `paper.pdf`, `paper.zip`, and interrupted compression/package
 temporary files. Cleaning removes `figures/media`; it preserves
-`figures/override` and the paper-local `frontmatter` directory. Every
+`figures/override`, `alt-text.txt`, and the paper-local `frontmatter` directory. Every
 `fcktaps` build runs this cleanup before rebuilding. If the paper directory is
 not next to this repository, also pass the checkout path, for example
 `FCKTAPS=/path/to/fcktaps`.
@@ -134,6 +134,25 @@ figures within the subsection where they occur.
 The build warns for every non-PDF override and for artwork that differs from
 the `acmart` publication width (7.0 inches for Figure 1, 3.33 inches for
 single-column figures, ±0.05-inch tolerance). Figure height is not validated.
+
+## Figure descriptions
+
+Persistent figure descriptions live in the paper directory's `alt-text.txt`.
+Use one entry per publication figure:
+
+```text
+Figure 1: A concise description of the figure's meaningful visual content.
+
+Figure 2: A description of the second figure.
+```
+
+Descriptions may continue on following lines. Blank entries are ignored, so
+they can be filled progressively. A nonblank file entry overrides alt text
+stored on the corresponding image in Word; when no file entry is present, the
+Word alt text remains the fallback. The converter emits the selected text as
+ACM's `\Description{...}` command. Changes to `alt-text.txt` trigger a rebuild,
+and `make clean` never removes it. Set `ALT_TEXT_FILE` to use a different
+paper-local file.
 
 ## Paper-specific frontmatter
 

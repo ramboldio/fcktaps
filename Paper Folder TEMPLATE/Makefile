@@ -4,6 +4,8 @@ FIGURE_OVERRIDES ?= figures/override
 OVERRIDE_FILES := $(wildcard $(FIGURE_OVERRIDES)/*)
 FRONTMATTER_DIR ?= frontmatter
 FRONTMATTER_FILES := $(addprefix $(FRONTMATTER_DIR)/,authors.tex ccs.tex rights.tex)
+ALT_TEXT_FILE ?= alt-text.txt
+ALT_TEXT_DEPENDENCY := $(wildcard $(ALT_TEXT_FILE))
 WARNINGS_FILE ?= .fcktaps-warnings
 
 .PHONY: all prepare compile clean check-input check-packages paper_indexed.json figure-overrides
@@ -45,9 +47,10 @@ figure-overrides: paper_indexed.json $(OVERRIDE_FILES)
 		"$(FIGURE_OVERRIDES)" figures/media paper_indexed.json
 	@touch $@
 
-paper_filtered.json: paper_indexed.json figure-overrides $(FRONTMATTER_FILES)
+paper_filtered.json: paper_indexed.json figure-overrides $(FRONTMATTER_FILES) $(ALT_TEXT_DEPENDENCY)
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
 	FCKTAPS_FRONTMATTER_DIR="$(FRONTMATTER_DIR)" \
+	FCKTAPS_ALT_TEXT_FILE="$(ALT_TEXT_FILE)" \
 		pandoc paper_indexed.json --from=json --to=json --output=$@ \
 		--filter="$(FCKTAPS)/rewrite_paths_as_pdf_images.js" \
 		--filter="$(FCKTAPS)/patch_latex_things.js"
