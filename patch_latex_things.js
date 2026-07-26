@@ -121,6 +121,26 @@ const Space = () => ({t: "Space"});
 const NonBreakingSpace = () => Str(" ");
 const RawLatex = (text) => ({t: "RawInline", c: ["latex", text]});
 
+const allow_breaks_after_equals_in_inline_code = value => {
+	if (Array.isArray(value)) return value.map(allow_breaks_after_equals_in_inline_code);
+	if (!value || typeof value !== "object") return value;
+
+	if (value.t === "Code" && value.c[1].includes("=")) {
+		const latex = value.c[1]
+			.split("=")
+			.map(escape_latex_text)
+			.join("=\\allowbreak{}");
+		return RawLatex(`\\texttt{${latex}}`);
+	}
+
+	return Object.fromEntries(
+		Object.entries(value).map(([key, child]) => [
+			key,
+			allow_breaks_after_equals_in_inline_code(child),
+		])
+	);
+};
+
 const Figure = (caption, image, ref_id) => ({
 	t: "Figure",
 	c: [
@@ -350,7 +370,7 @@ const MetaList = (items) => ({
 \\end{document}`)
 		];
 
-		doc.blocks = blocks;
+		doc.blocks = allow_breaks_after_equals_in_inline_code(blocks);
 		return doc;
 	})
 	.then(async (data) => process.stdout.write(JSON.stringify(data)));
