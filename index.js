@@ -14,7 +14,7 @@ const TITLE_CASE_MINOR_WORDS = new Set([
   "to", "up", "via", "vs", "w", "with", "yet",
 ]);
 const TITLE_CASE_ACRONYMS = new Set([
-  "2D", "3D", "5DOF", "ACM", "AI", "API", "AR", "CAD", "CAM", "CHI", "CNC",
+  "2D", "3D", "ACM", "AI", "API", "AR", "CAD", "CAM", "CHI", "CNC",
   "CSS", "DOF", "FDM", "GPU", "GUI", "HCI", "HTML", "IEEE", "NIR", "PDF",
   "SIGCHI", "SLA", "SLS", "SVG", "TAPS", "UI", "UIST", "URL", "UV", "UX",
   "VIS", "VR", "XR",

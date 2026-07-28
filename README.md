@@ -99,7 +99,7 @@ not next to this repository, also pass the checkout path, for example
 
 The build warns when the paper title or a section heading is not in title case.
 Structural labels such as `ACKNOWLEDGMENTS` and `REFERENCES` are excluded, and
-technical acronyms and digit-containing names such as `SVG`, `UIST`, and `5DOF`
+technical acronyms and digit-containing names such as `SVG`, `UIST`, and `3D`
 are preserved.
 
 The generated LaTeX is also checked against ACM's TAPS accepted-package list.
