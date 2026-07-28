@@ -34,7 +34,7 @@ that paper's `zotero.bib` and `reference_keys.csv`. From the `fcktaps` repositor
 directory, pass the Word document to the `fcktaps` command:
 
 ```sh
-./fcktaps "../131 2026-Naumann-UIST26-five axis laser cutting AS SUBMITTED TO UIST.docx"
+./fcktaps "../YOUR PAPER.docx"
 ```
 
 The default display hides the verbose LaTeX transcript behind a spinner and
@@ -45,7 +45,7 @@ Repeated ACM missing-description messages are consolidated and mapped from
 generated LaTeX line numbers back to publication figure numbers.
 
 ```sh
-./fcktaps --verbose "../131 2026-Naumann-UIST26-five axis laser cutting AS SUBMITTED TO UIST.docx"
+./fcktaps --verbose "../YOUR PAPER.docx"
 ```
 
 For a paper directory elsewhere, pass it separately:
