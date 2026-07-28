@@ -1,0 +1,560 @@
+#!/usr/bin/env python3
+"""Quiet-by-default command-line interface for the fcktaps build."""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import zipfile
+from pathlib import Path
+
+from apply_figure_overrides import NAME_PATTERN as FIGURE_OVERRIDE_NAME_PATTERN
+from apply_figure_overrides import override_flags
+from report_warnings import print_messages, read_messages
+
+
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+ACM_WARNING = re.compile(r"^Class acmart Warning:\s*(.+)$")
+MISSING_DESCRIPTION = re.compile(
+    r"^A possible image without description on input line (\d+)\.$"
+)
+LATEX_ERROR = re.compile(r"^!\s+(.+?)\s*$")
+LATEX_LINE_CONTEXT = re.compile(r"^l\.(\d+)\s*(.*)$")
+LATEX_ERROR_SUMMARIES = {
+    "Emergency stop.",
+    "==> Fatal error occurred, no output PDF file produced!",
+}
+INCLUDE_GRAPHICS = re.compile(
+    r"\\includegraphics\*?(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}"
+)
+BIBLIOGRAPHY = re.compile(r"\\bibliography\s*\{([^}]+)\}")
+TAPS_FILENAME = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="fcktaps",
+        description="Convert a Word manuscript to ACM TAPS-compatible LaTeX and PDF.",
+        epilog="Run 'fcktaps init [PATH]' to create a new paper directory.",
+    )
+    result.add_argument("-V", "--verbose", action="store_true", help="show the complete Pandoc, BibTeX, and LaTeX output")
+    result.add_argument(
+        "-c",
+        "--compress",
+        action="store_true",
+        help="compress referenced PDF figures before building, then compress paper.pdf",
+    )
+    result.add_argument(
+        "-cf",
+        "--compress-figures",
+        action="store_true",
+        help="compress referenced PDF figures before building, but not paper.pdf",
+    )
+    result.add_argument(
+        "-p",
+        "--publish",
+        "--package",
+        dest="publish",
+        action="store_true",
+        help="create a TAPS-ready paper.zip after building",
+    )
+    result.add_argument("--paper-dir", metavar="PATH", help="paper working directory (default: ../paper)")
+    result.add_argument("document", metavar="DOCUMENT.docx", help="Word manuscript to process")
+    return result
+
+
+def init_parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="fcktaps init",
+        description="Create a new paper directory from the bundled template.",
+    )
+    result.add_argument(
+        "paper_dir",
+        nargs="?",
+        metavar="PATH",
+        help="directory to create (default: ../paper)",
+    )
+    return result
+
+
+def init_paper_dir(arguments: list[str]) -> None:
+    argument_parser = init_parser()
+    args = argument_parser.parse_args(arguments)
+    tool_dir = Path(__file__).resolve().parent
+    template_dir = tool_dir / "Paper Folder TEMPLATE"
+    paper_dir = (
+        Path(args.paper_dir).expanduser().resolve()
+        if args.paper_dir
+        else (tool_dir.parent / "paper").resolve()
+    )
+
+    if paper_dir.exists():
+        argument_parser.error(f"destination already exists: {paper_dir}")
+
+    try:
+        paper_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(template_dir, paper_dir)
+    except OSError as error:
+        argument_parser.error(f"could not create {paper_dir}: {error}")
+
+    print(f"Created paper directory: {paper_dir}")
+
+
+def figure_map(tex_path: Path) -> tuple[dict[int, int], int | None]:
+    """Map generated TeX line numbers to their one-based figure numbers."""
+    if not tex_path.is_file():
+        return {}, None
+
+    line_to_figure = {}
+    figure_number = 0
+    current_figure = None
+    teaser_figure = None
+    for line_number, line in enumerate(tex_path.read_text(encoding="utf8").splitlines(), 1):
+        if (
+            "\\begin{teaserfigure}" in line
+            or "\\begin{figure*}" in line
+            or "\\begin{figure}" in line
+        ):
+            figure_number += 1
+            current_figure = figure_number
+            if "\\begin{teaserfigure}" in line:
+                teaser_figure = figure_number
+        if current_figure is not None:
+            line_to_figure[line_number] = current_figure
+        if (
+            "\\end{teaserfigure}" in line
+            or "\\end{figure*}" in line
+            or "\\end{figure}" in line
+        ):
+            current_figure = None
+    return line_to_figure, teaser_figure
+
+
+def compact_numbers(numbers: list[int]) -> str:
+    ranges = []
+    start = previous = numbers[0]
+    for number in numbers[1:] + [None]:
+        if number is not None and number == previous + 1:
+            previous = number
+            continue
+        if start == previous:
+            ranges.append(str(start))
+        elif previous == start + 1:
+            ranges.extend([str(start), str(previous)])
+        else:
+            ranges.append(f"{start}–{previous}")
+        if number is not None:
+            start = previous = number
+    if len(ranges) == 1:
+        return ranges[0]
+    return ", ".join(ranges[:-1]) + f", and {ranges[-1]}"
+
+
+def acm_warnings(lines: list[str], tex_path: Path) -> list[str]:
+    messages = []
+    seen = set()
+    missing_description_lines = set()
+    missing_description_summary = False
+    for line in lines:
+        match = ACM_WARNING.match(line.rstrip("\r\n"))
+        if not match:
+            continue
+        acm_message = match.group(1).strip()
+        description_match = MISSING_DESCRIPTION.match(acm_message)
+        if description_match:
+            missing_description_lines.add(int(description_match.group(1)))
+            continue
+        if acm_message == "Some images may lack descriptions.":
+            missing_description_summary = True
+            continue
+        message = f"ACM: {acm_message}"
+        if message not in seen:
+            seen.add(message)
+            messages.append(message)
+
+    if missing_description_lines:
+        line_to_figure, teaser_figure = figure_map(tex_path)
+        figure_numbers = set()
+        unresolved_lines = []
+        tex_lines = tex_path.read_text(encoding="utf8").splitlines() if tex_path.is_file() else []
+        for line_number in sorted(missing_description_lines):
+            figure_number = line_to_figure.get(line_number)
+            if figure_number is None and 0 < line_number <= len(tex_lines):
+                if "\\maketitle" in tex_lines[line_number - 1]:
+                    figure_number = teaser_figure
+            if figure_number is None:
+                unresolved_lines.append(line_number)
+            else:
+                figure_numbers.add(figure_number)
+
+        parts = []
+        if figure_numbers:
+            noun = "Figure" if len(figure_numbers) == 1 else "Figures"
+            parts.append(f"{noun} {compact_numbers(sorted(figure_numbers))}")
+        if unresolved_lines:
+            noun = "input line" if len(unresolved_lines) == 1 else "input lines"
+            parts.append(f"{noun} {compact_numbers(unresolved_lines)}")
+        messages.insert(0, f"ACM: {', '.join(parts)} may be missing descriptions.")
+    elif missing_description_summary:
+        messages.insert(0, "ACM: Some images may be missing descriptions.")
+    return messages
+
+
+def latex_error(lines: list[str]) -> str | None:
+    """Return the first actionable TeX error and its nearby source context."""
+    errors = []
+    for index, line in enumerate(lines):
+        match = LATEX_ERROR.match(line.rstrip("\r\n"))
+        if not match:
+            continue
+
+        message = match.group(1).strip()
+        context = None
+        for following_line in lines[index + 1 : index + 16]:
+            if LATEX_ERROR.match(following_line.rstrip("\r\n")):
+                break
+            context_match = LATEX_LINE_CONTEXT.match(following_line.rstrip("\r\n"))
+            if context_match:
+                line_number, source = context_match.groups()
+                context = f"input line {line_number}"
+                if source.strip():
+                    context += f": {source.strip()}"
+                break
+        errors.append((message, context))
+
+    if not errors:
+        return None
+
+    message, context = next(
+        (error for error in errors if error[0] not in LATEX_ERROR_SUMMARIES),
+        errors[0],
+    )
+    return f"{message} ({context})" if context else message
+
+
+def run_build(
+    command: list[str],
+    cwd: Path,
+    verbose: bool,
+    warnings_file: Path,
+    *,
+    status_label: str = "LaTeX",
+    defer_success_messages: bool = False,
+) -> int:
+    environment = dict(os.environ)
+    environment["FCKTAPS_SUPPRESS_WARNING_DISPLAY"] = "1"
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        bufsize=1,
+    )
+
+    lines = []
+
+    def consume_output() -> None:
+        assert process.stdout is not None
+        for line in process.stdout:
+            lines.append(line)
+            if verbose:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+
+    reader = threading.Thread(target=consume_output, daemon=True)
+    reader.start()
+
+    interactive = sys.stderr.isatty()
+    if not verbose and not interactive:
+        print(f"{status_label} is running...", file=sys.stderr)
+
+    frame = 0
+    try:
+        while process.poll() is None:
+            if not verbose and interactive:
+                sys.stderr.write(
+                    f"\r\033[2K{SPINNER[frame % len(SPINNER)]} "
+                    f"{status_label} is running…"
+                )
+                sys.stderr.flush()
+                frame += 1
+            time.sleep(0.08)
+    except KeyboardInterrupt:
+        process.terminate()
+        process.wait()
+        raise
+    finally:
+        reader.join()
+        if not verbose and interactive:
+            sys.stderr.write("\r\033[2K")
+            sys.stderr.flush()
+
+    return_code = process.returncode
+    messages = []
+    if not defer_success_messages or return_code != 0:
+        messages = read_messages(warnings_file)
+        messages.extend(
+            message
+            for message in acm_warnings(lines, warnings_file.parent / "paper.tex")
+            if message not in messages
+        )
+
+    if return_code == 0:
+        if not verbose:
+            print(f"{status_label} finished.", file=sys.stderr)
+    else:
+        error = latex_error(lines) or (
+            f"Build failed with exit code {return_code}. "
+            "Re-run with -V or --verbose for details."
+        )
+        messages.insert(0, f"ERROR -- {error}")
+
+    if messages:
+        print_messages(messages)
+    return return_code
+
+
+def ghostscript_compress(pdf_path: Path) -> None:
+    """Compress one PDF with Ghostscript, replacing it only after success."""
+    compressed_pdf = pdf_path.with_name(f"{pdf_path.stem}-compressed.pdf")
+    if not pdf_path.is_file():
+        raise RuntimeError(f"PDF not found after build: {pdf_path}")
+    command = [
+        "gs",
+        "-sDEVICE=pdfwrite",
+        "-dCompatibilityLevel=1.7",
+        "-dNOPAUSE",
+        "-dQUIET",
+        "-dBATCH",
+        "-dDetectDuplicateImages=true",
+        "-dCompressFonts=true",
+        "-dSubsetFonts=true",
+        f"-sOutputFile={compressed_pdf.name}",
+        pdf_path.name,
+    ]
+    try:
+        result = subprocess.run(command, cwd=pdf_path.parent, check=False)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Ghostscript executable 'gs' was not found; install Ghostscript "
+            "or build without --compress."
+        ) from error
+
+    if result.returncode != 0:
+        compressed_pdf.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Ghostscript compression failed for {pdf_path} "
+            f"with exit code {result.returncode}."
+        )
+    if not compressed_pdf.is_file() or compressed_pdf.stat().st_size == 0:
+        compressed_pdf.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Ghostscript did not produce the compressed PDF for {pdf_path}."
+        )
+
+    compressed_pdf.replace(pdf_path)
+
+
+def compress_pdf(paper_dir: Path) -> None:
+    """Compress the built paper PDF."""
+    paper_pdf = paper_dir / "paper.pdf"
+    ghostscript_compress(paper_pdf)
+    print(f"Compressed PDF: {paper_pdf}")
+
+
+def package_source_files(paper_dir: Path, tex_path: Path) -> list[Path]:
+    """Return the generated TeX and every local resource it references."""
+    tex = tex_path.read_text(encoding="utf8")
+    relative_paths = {Path("paper.tex")}
+
+    for bibliography_group in BIBLIOGRAPHY.findall(tex):
+        for bibliography in bibliography_group.split(","):
+            bibliography_path = Path(bibliography.strip())
+            if not bibliography_path.suffix:
+                bibliography_path = bibliography_path.with_suffix(".bib")
+            relative_paths.add(bibliography_path)
+
+    for graphic in INCLUDE_GRAPHICS.findall(tex):
+        relative_paths.add(Path(graphic.strip()))
+
+    paper_root = paper_dir.resolve()
+    source_files = []
+    for relative_path in sorted(relative_paths, key=lambda path: path.as_posix()):
+        if relative_path.is_absolute():
+            raise RuntimeError(
+                f"TAPS source path must be relative to the paper directory: {relative_path}"
+            )
+        source_path = (paper_dir / relative_path).resolve()
+        try:
+            archive_path = source_path.relative_to(paper_root)
+        except ValueError as error:
+            raise RuntimeError(
+                f"TAPS source path escapes the paper directory: {relative_path}"
+            ) from error
+        if not source_path.is_file():
+            raise RuntimeError(f"TAPS source file not found: {relative_path}")
+        if not TAPS_FILENAME.fullmatch(archive_path.as_posix()):
+            raise RuntimeError(
+                "TAPS source filenames may contain only letters, numbers, "
+                f"periods, dashes, underscores, and directories: {archive_path}"
+            )
+        source_files.append(source_path)
+    return source_files
+
+
+def compress_figure_pdfs(paper_dir: Path) -> int:
+    """Compress only PDF artwork referenced by the generated paper.tex."""
+    tex_path = paper_dir / "paper.tex"
+    if not tex_path.is_file():
+        raise RuntimeError(f"generated LaTeX not found after build: {tex_path}")
+
+    # Validate all TeX dependencies before changing generated files.
+    package_source_files(paper_dir, tex_path)
+
+    uncompressed_figures = set()
+    override_dir = paper_dir / "figures" / "override"
+    if override_dir.is_dir():
+        for override in override_dir.iterdir():
+            if not override.is_file():
+                continue
+            match = FIGURE_OVERRIDE_NAME_PATTERN.fullmatch(override.name)
+            if match and "u" in override_flags(match):
+                uncompressed_figures.add(int(match.group("number")))
+
+    figure_pdfs = []
+    skipped = 0
+    tex = tex_path.read_text(encoding="utf8")
+    for figure_number, graphic in enumerate(INCLUDE_GRAPHICS.findall(tex), 1):
+        figure_pdf = (paper_dir / graphic.strip()).resolve()
+        if figure_pdf.suffix.lower() != ".pdf":
+            continue
+        if figure_number in uncompressed_figures:
+            skipped += 1
+            continue
+        figure_pdfs.append(figure_pdf)
+
+    for figure_pdf in figure_pdfs:
+        ghostscript_compress(figure_pdf)
+
+    noun = "figure PDF" if len(figure_pdfs) == 1 else "figure PDFs"
+    message = f"Compressed {len(figure_pdfs)} referenced {noun}."
+    if skipped:
+        skip_noun = "figure" if skipped == 1 else "figures"
+        message += f" Skipped {skipped} {skip_noun} marked -u."
+    print(message)
+    return len(figure_pdfs)
+
+
+def create_taps_package(paper_dir: Path) -> Path:
+    """Create source/ and pdf/ trees in a ZIP suitable for ACM TAPS."""
+    tex_path = paper_dir / "paper.tex"
+    paper_pdf = paper_dir / "paper.pdf"
+    if not tex_path.is_file():
+        raise RuntimeError(f"generated LaTeX not found after build: {tex_path}")
+    if not paper_pdf.is_file():
+        raise RuntimeError(f"PDF not found after build: {paper_pdf}")
+
+    source_files = package_source_files(paper_dir, tex_path)
+    package_path = paper_dir / "paper.zip"
+    temporary_path = paper_dir / ".paper.zip.tmp"
+    temporary_path.unlink(missing_ok=True)
+    try:
+        with zipfile.ZipFile(
+            temporary_path,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+        ) as package:
+            package.writestr("source/", b"")
+            package.writestr("pdf/", b"")
+            for source_file in source_files:
+                relative_path = source_file.resolve().relative_to(paper_dir.resolve())
+                package.write(source_file, Path("source") / relative_path)
+            package.write(paper_pdf, "pdf/paper.pdf")
+        temporary_path.replace(package_path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+    print(f"TAPS package: {package_path}")
+    return package_path
+
+
+def main() -> None:
+    if sys.argv[1:2] == ["init"]:
+        init_paper_dir(sys.argv[2:])
+        return
+
+    args = parser().parse_args()
+    tool_dir = Path(__file__).resolve().parent
+    document = Path(args.document).expanduser().resolve()
+    paper_dir = (
+        Path(args.paper_dir).expanduser().resolve()
+        if args.paper_dir
+        else (tool_dir.parent / "paper").resolve()
+    )
+
+    if not document.is_file():
+        parser().error(f"document not found: {document}")
+    if not paper_dir.is_dir():
+        parser().error(f"paper directory not found: {paper_dir}")
+
+    command_prefix = [
+        "make",
+        f"DOCX={document}",
+        f"PAPER_DIR={paper_dir}",
+    ]
+    warnings_file = paper_dir / ".fcktaps-warnings"
+    try:
+        if args.compress or args.compress_figures:
+            prepare_command = [*command_prefix, "clean", "prepare"]
+            return_code = run_build(
+                prepare_command,
+                tool_dir,
+                args.verbose,
+                warnings_file,
+                status_label="Source preparation",
+                defer_success_messages=True,
+            )
+            if return_code != 0:
+                sys.exit(return_code)
+            compress_figure_pdfs(paper_dir)
+            pdf_command = [*command_prefix, "pdf"]
+            return_code = run_build(
+                pdf_command,
+                tool_dir,
+                args.verbose,
+                warnings_file,
+            )
+        else:
+            command = [*command_prefix, "clean", "all"]
+            return_code = run_build(
+                command,
+                tool_dir,
+                args.verbose,
+                warnings_file,
+            )
+        if return_code != 0:
+            sys.exit(return_code)
+        if args.compress:
+            compress_pdf(paper_dir)
+        if args.publish:
+            create_taps_package(paper_dir)
+        sys.exit(0)
+    except RuntimeError as error:
+        print_messages([f"ERROR -- {error}"])
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nBuild interrupted.", file=sys.stderr)
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()

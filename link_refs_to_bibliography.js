@@ -14,7 +14,7 @@ const readStdin = () => {
   });
 }
 
-// Parse reference_keys.csv: "number, bibtex_key" format
+// Parse reference_keys.csv: one BibTeX key per Word bibliography entry.
 function parseReferenceKeys(csvPath) {
   const content = fs.readFileSync(csvPath, "utf8");
   const mapping = {};
@@ -33,10 +33,71 @@ const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
 	} else return "";
 }).join("");
 
+const is_cite = (inline) => inline && inline.t === "Cite";
+const is_collapsible_citation_space = (inline) =>
+	inline && ["Space", "SoftBreak"].includes(inline.t);
+
+const citation_display = (citations) => {
+	const inlines = [Str("[")];
+	citations.forEach((citation, index) => {
+		if (index > 0) inlines.push(Str(","), Space());
+		inlines.push(Str(citation.citationId));
+	});
+	inlines.push(Str("]"));
+	return inlines;
+};
+
+const merge_cites = (left, right) => {
+	const citations = [...left.c[0], ...right.c[0]];
+	return {
+		t: "Cite",
+		c: [citations, citation_display(citations)]
+	};
+};
+
+// Word exports a multi-reference citation as neighboring citation links. Once
+// those links have become Cite nodes, combine the whole run into one Pandoc
+// citation. Pandoc's natbib writer then emits one \citep{key1, key2, ...}.
+// Also replace the ordinary space immediately before each citation group with
+// LaTeX's non-breaking space so the rendered reference stays with its text.
+const normalize_citation_inlines = (inlines) => {
+	const normalized = [];
+
+	inlines.forEach((inline, index) => {
+		const previous = normalized[normalized.length - 1];
+		const next = inlines[index + 1];
+
+		if (
+			is_collapsible_citation_space(inline) &&
+			is_cite(previous) &&
+			is_cite(next)
+		) {
+			return;
+		}
+
+		if (is_cite(inline) && is_cite(previous)) {
+			normalized[normalized.length - 1] = merge_cites(previous, inline);
+			return;
+		}
+
+		if (is_collapsible_citation_space(inline) && is_cite(next)) {
+			normalized.push(RawLatex("~"));
+			return;
+		}
+
+		normalized.push(inline);
+	});
+
+	return normalized;
+};
+
 const mapTree = (node, fn) => {
 	if (node.t === undefined) throw new Error("not a block");
 	if (node.t === "Para" || node.t === "Plain") {
-		return fn({ ...node, c: node.c.map(b => mapTree(b, fn)) });
+		return fn({
+			...node,
+			c: normalize_citation_inlines(node.c.map(b => mapTree(b, fn)))
+		});
 	} else if (node.t === "Figure") {
 			const figure = ({ ...node });
 			figure.c[1] = figure.c[1].map(list => list ? list.map(b => mapTree(b, fn)) : list);
@@ -44,7 +105,7 @@ const mapTree = (node, fn) => {
 			return fn(figure);
 	} else if (["Strong", "Emph"].includes(node.t)) {
 		const block = ({ ...node });
-		block.c = block.c.map(b => mapTree(b, fn));
+		block.c = normalize_citation_inlines(block.c.map(b => mapTree(b, fn)));
 		return fn(block);
 	} else if (["Div", "Image", "Span", "Caption"].includes(node.t)) {
 		const div = ({ ...node });
@@ -74,6 +135,8 @@ const get_first_child = (block) => get_children(block)[0];
 
 // Pandoc Type Constructors
 const Str = (text) => ({t: "Str", c: text});
+const Space = () => ({t: "Space"});
+const RawLatex = (text) => ({t: "RawInline", c: ["latex", text]});
 
 const styles = {bibliography_entry: "Bib_entry"};
 
@@ -124,17 +187,20 @@ const convert_link_to_cite = (inline_block, mapping) => {
 		};
 
 		const olist = blocks.find(b => b.t === "OrderedList");
-		const word_keys = olist
-			? olist.c[1].flatMap(item => deep_get_anchors(item))
+		const word_entries = olist
+			? olist.c[1].map(item => deep_get_anchors(item))
 			: [];
 
-		// Map Word anchor IDs to bibtex keys using CSV (1-indexed position)
-		if (word_keys.length !== refKeys.length) {
-			console.error(`length mismatch: ${word_keys.length} anchors in doc vs ${refKeys.length} keys in CSV`);
+		// One bibliography entry can carry multiple Word anchor IDs when Word has
+		// merged duplicate references. All of those anchors share one CSV key.
+		if (word_entries.length !== refKeys.length) {
+			console.error(`length mismatch: ${word_entries.length} bibliography entries in doc vs ${refKeys.length} keys in CSV`);
 			process.exit(1);
 		}
 
-		const mapping = Object.fromEntries(word_keys.map((key, i) => [key, refKeys[i]]));
+		const mapping = Object.fromEntries(
+			word_entries.flatMap((anchors, i) => anchors.map(anchor => [anchor, refKeys[i]]))
+		);
 
 		// Remove bibliography ordered lists
 		blocks = blocks.filter(b => b.t !== "OrderedList");

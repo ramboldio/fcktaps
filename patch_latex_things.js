@@ -1,6 +1,66 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const path = require("path");
+
+const load_frontmatter = () => {
+	const directory = process.env.FCKTAPS_FRONTMATTER_DIR;
+	if (!directory) {
+		throw new Error("FCKTAPS_FRONTMATTER_DIR is not set");
+	}
+
+	return Object.fromEntries(["authors", "ccs", "rights"].map(name => [
+		name,
+		fs.readFileSync(path.join(directory, `${name}.tex`), "utf8").trim(),
+	]));
+};
+
+const load_alt_text = () => {
+	const filename = process.env.FCKTAPS_ALT_TEXT_FILE;
+	if (!filename || !fs.existsSync(filename)) return new Map();
+
+	const descriptions = new Map();
+	let currentFigure = null;
+	for (const [index, sourceLine] of fs.readFileSync(filename, "utf8").split(/\r?\n/).entries()) {
+		const line = sourceLine.trim();
+		if (!line || line.startsWith("#")) continue;
+
+		const entry = line.match(/^Figure\s+([1-9]\d*):\s*(.*)$/i);
+		if (entry) {
+			const figureNumber = Number(entry[1]);
+			if (descriptions.has(figureNumber)) {
+				throw new Error(`${filename}:${index + 1}: duplicate Figure ${figureNumber} entry`);
+			}
+			descriptions.set(figureNumber, entry[2]);
+			currentFigure = figureNumber;
+			continue;
+		}
+
+		if (currentFigure === null) {
+			throw new Error(
+				`${filename}:${index + 1}: expected "Figure N: description"`
+			);
+		}
+		const previous = descriptions.get(currentFigure);
+		descriptions.set(currentFigure, previous ? `${previous} ${line}` : line);
+	}
+	return descriptions;
+};
+
+const LATEX_TEXT_ESCAPES = {
+	"\\": "\\textbackslash{}",
+	"{": "\\{",
+	"}": "\\}",
+	"$": "\\$",
+	"&": "\\&",
+	"#": "\\#",
+	"%": "\\%",
+	"_": "\\_",
+	"~": "\\textasciitilde{}",
+	"^": "\\textasciicircum{}",
+};
+const escape_latex_text = text =>
+	text.replace(/[\\{}$&#%_~^]/g, character => LATEX_TEXT_ESCAPES[character]);
 
 // Read all stdin
 const readStdin = () => {
@@ -61,6 +121,26 @@ const Space = () => ({t: "Space"});
 const NonBreakingSpace = () => Str(" ");
 const RawLatex = (text) => ({t: "RawInline", c: ["latex", text]});
 
+const allow_breaks_after_equals_in_inline_code = value => {
+	if (Array.isArray(value)) return value.map(allow_breaks_after_equals_in_inline_code);
+	if (!value || typeof value !== "object") return value;
+
+	if (value.t === "Code" && value.c[1].includes("=")) {
+		const latex = value.c[1]
+			.split("=")
+			.map(escape_latex_text)
+			.join("=\\allowbreak{}");
+		return RawLatex(`\\texttt{${latex}}`);
+	}
+
+	return Object.fromEntries(
+		Object.entries(value).map(([key, child]) => [
+			key,
+			allow_breaks_after_equals_in_inline_code(child),
+		])
+	);
+};
+
 const Figure = (caption, image, ref_id) => ({
 	t: "Figure",
 	c: [
@@ -108,6 +188,8 @@ const MetaList = (items) => ({
 (async () => {
 	readStdin().then(async (stdin_content) => {
 		const doc = JSON.parse(stdin_content);
+		const frontmatter = load_frontmatter();
+		const altText = load_alt_text();
 		
 		let blocks = doc.blocks;
 
@@ -135,45 +217,83 @@ const MetaList = (items) => ({
 		const figure_one = blocks[figure_one_index];
 		blocks = blocks.filter((_, i) => i !== figure_one_index);
 
-		const get_alt_text = (figure) => {
-			const image = figure.c[2][0].c[0];
+		const get_figure_image = (figure) => {
+			if (!figure) return null;
+			const block = figure.c[2][0];
+			if (block.t === "Para" || block.t === "Plain") {
+				return block.c.find(b => b.t === "Image") || null;
+			}
+			return block.t === "Image" ? block : null;
+		};
+
+		const get_alt_text = (figure, figureNumber) => {
+			const fileDescription = altText.get(figureNumber)?.trim();
+			if (fileDescription) return fileDescription;
+			const image = get_figure_image(figure);
+			if (!image) return "";
 			const alt_inlines = image.c[1] || [];
-			// TODO make sure that this is not handled here, but in pandoc, so e.g. \% etc gets exited
 			return stringify_inlines(alt_inlines);
 		};
 
-		const render_figure = (figure) => {
-			const alt = get_alt_text(figure);
+		const get_caption_inlines = (figure) => {
+			const caption_block = figure.c[1][1][0];
+			if (!caption_block) return [];
+
+			let inlines = [];
+			if (caption_block.t === "Para" || caption_block.t === "Plain") {
+				inlines = caption_block.c;
+			} else if (caption_block.t === "Div") {
+				const inner = caption_block.c[1][0];
+				if (inner && (inner.t === "Para" || inner.t === "Plain")) inlines = inner.c;
+			}
+
+			while (inlines.length > 0 &&
+				((inlines[0].t === "Str" && inlines[0].c === ":") || inlines[0].t === "Space")) {
+				inlines = inlines.slice(1);
+			}
+			return inlines;
+		};
+
+		const render_figure = (figure, figureNumber) => {
+			const alt = get_alt_text(figure, figureNumber);
+			const image = get_figure_image(figure);
+			const force_here = figure.c[0][2].some(([key, value]) =>
+				key === "fcktaps-latex-placement" && value === "H"
+			);
+			const placement = force_here ? "H" : "h";
+			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
 			const parts = [
-				RawLatex(`\\begin{figure}[h]\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
-				RawLatex(`\\label{${figure.c[0][0]}}`),
+				RawLatex(`\\begin{figure}[${placement}]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
 			];
-			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
+			if (alt) parts.push(RawLatex(`\\Description{${escape_latex_text(alt)}}`));
 			parts.push(
 				RawLatex("\\caption{"),
-				...figure.c[1][1][0].c,
-				RawLatex("}\n\\end{figure}"),
+				...get_caption_inlines(figure),
+				RawLatex(`}${label}\n\\end{figure}`),
 			);
 			return Para(parts);
 		};
 
+		let figureNumber = figure_one ? 1 : 0;
 		blocks = blocks.map(b => {
 			if (b.t === "Figure") {
-				return render_figure(b);
+				figureNumber += 1;
+				return render_figure(b, figureNumber);
 			} else return b;
 		});
 
 		const render_figure_one = (figure) => {
-			const alt = get_alt_text(figure);
+			const alt = get_alt_text(figure, 1);
+			const image = get_figure_image(figure);
+			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
 			const parts = [
-				RawLatex(`\\begin{teaserfigure}\n\\centering\n\\includegraphics[width=\\columnwidth]{${figure.c[2][0].c[0].c[2][0]}}`),
-				RawLatex(`\\label{${figure.c[0][0]}}`),
+				RawLatex(`\\begin{figure*}[t]\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
 			];
-			if (alt) parts.push(RawLatex(`\\Description{${alt}}`));
+			if (alt) parts.push(RawLatex(`\\Description{${escape_latex_text(alt)}}`));
 			parts.push(
 				RawLatex("\\caption{"),
-				...figure.c[1][1][0].c,
-				RawLatex("}\n\\end{teaserfigure}"),
+				...get_caption_inlines(figure),
+				RawLatex(`}${label}\n\\end{figure*}`),
 			);
 			return Para(parts);
 		};
@@ -200,67 +320,49 @@ const MetaList = (items) => ({
 
 		const RawLatexPara = (text) => Para([RawLatex(text)]);
 
-		const render_author = (author) => RawLatexPara(`
-			 \\author{${author}}
-				\\affiliation{
-					\\institution{Hasso-Plattner-Institute}
-					\\city{Potsdam}
-					\\country{Germany}
-				}`
+		// Keep queued figures inside the section or subsection where they occur.
+		// A barrier before each new boundary closes the preceding one; the final
+		// barrier below closes the last subsection in the manuscript.
+		blocks = blocks.flatMap(block =>
+			block.t === "Header" && block.c[0] <= 2
+				? [RawLatexPara("\\FloatBarrier"), block]
+				: [block]
 		);
-
-		const render_author_short_handle = (author_short_handle) => RawLatexPara(`\\renewcommand{\\shortauthors}{${author_short_handle}}`);
-
-		const render_ccs = () => RawLatexPara(`
-			\\begin{CCSXML}
-			<ccs2012>
-			<concept>
-			<concept_id>10003120.10003121.10003129</concept_id>
-			<concept_desc>Human-centered computing~Interactive systems and tools</concept_desc>
-			<concept_significance>500</concept_significance>
-			</concept>
-			</ccs2012>
-			\\end{CCSXML}
-			\\ccsdesc[500]{Human-centered computing~Interactive systems and tools}
-		`);
-		const render_copyright_stuff = () => RawLatexPara(`
-		\\copyrightyear{2026}
-		\\acmYear{2026}
-		\\setcopyright{cc}
-		\\setcctype{by-nc-nd}
-		\\acmConference[CHI '26]{Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems}{April 13--17, 2026}{Barcelona, Spain}
-		\\acmBooktitle{Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems (CHI '26), April 13--17, 2026, Barcelona, Spain}
-		\\acmDOI{10.1145/3772318.3791706}
-		\\acmISBN{979-8-4007-2278-3/2026/04}
-		`);
-
-		// TODO move these to document metadata
-		const authors = ["Lukas Rambold", "Robert Kovacs", "Min Deng", "Antonius Naumann", "Konrad Gerlach", "Horatio Hamkins", "Helena Lendowski", "Chiao Fang", "Shohei Katakura", "Conrad Lempert", "Muhammad Abdullah", "Patrick Baudisch"];
-		const author_short_handle = "Rambold et al."
 
 		blocks = [
 			RawLatexPara(`
 \\documentclass[sigconf,screen]{acmart}
 \\usepackage{graphicx}
-\\usepackage[utf8x]{inputenc}
-\\usepackage{float}      % for h option if needed
+\\usepackage[utf8]{inputenc}
+\\usepackage[T1]{fontenc}
+\\usepackage{float}
+\\usepackage{placeins}
 \\usepackage{algorithm}
 \\usepackage{algpseudocode}
 \\usepackage{dblfloatfix}
 \\usepackage{wasysym}
+\\usepackage{url}
+\\usepackage{newunicodechar}
+\\newunicodechar{₂}{\\ensuremath{_2}}
+\\newunicodechar{μ}{\\ensuremath{\\mu}}
+\\newunicodechar{′}{\\ensuremath{^\\prime}}
+\\newunicodechar{−}{--}
+\\newunicodechar{×}{\\texttimes}
+\\newunicodechar{°}{\\textdegree}
 \\begin{document}
+\\hypersetup{colorlinks=true,allcolors=black}
 			`),
 			render_title(doc.meta.title),
 			render_abstract(doc.meta.abstract),
-			render_ccs(),
-			render_copyright_stuff(),
+			RawLatexPara(frontmatter.ccs),
+			RawLatexPara(frontmatter.rights),
 			render_keywords(doc.meta.keywords.c.map(item => item.c)),
-			render_figure_one(figure_one),
-			...authors.map(render_author),
-			render_author_short_handle(author_short_handle),
+			RawLatexPara(frontmatter.authors),
 			RawLatexPara(`
 \\maketitle`),
+			...(figure_one ? [render_figure_one(figure_one)] : []),
 			...blocks,
+			RawLatexPara("\\FloatBarrier"),
 			render_acknoledgements(doc.meta.acknoledgements),
 			RawLatexPara(`
 \\bibliographystyle{ACM-Reference-Format}
@@ -268,7 +370,7 @@ const MetaList = (items) => ({
 \\end{document}`)
 		];
 
-		doc.blocks = blocks;
+		doc.blocks = allow_breaks_after_equals_in_inline_code(blocks);
 		return doc;
 	})
 	.then(async (data) => process.stdout.write(JSON.stringify(data)));

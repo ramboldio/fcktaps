@@ -115,13 +115,9 @@ const stripSortKey = (text) => text.replace(/^[A-Za-z]+\s+/, '');
   // Write zotero.bib
   fs.writeFileSync('./zotero.bib', results.map(r => r.bibtex).join('\n\n'), 'utf8');
 
-  // Write reference_keys.csv — one key per anchor, in document order
-  const csvLines = [];
-  for (const r of results) {
-    for (const _ of r.anchors) {
-      csvLines.push(r.key);
-    }
-  }
+  // Write reference_keys.csv — one unique key per bibliography entry. An
+  // entry may have several Word anchors, which all map to this one key.
+  const csvLines = results.map(r => r.key);
   fs.writeFileSync('./reference_keys.csv', csvLines.join('\n') + '\n', 'utf8');
 
   // Debug index
