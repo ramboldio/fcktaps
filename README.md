@@ -5,7 +5,7 @@ It automates the tedious steps required for preparing a submission-ready LaTeX p
 
 ## Requirements
 
-- pandoc
+- pandoc 3.8
 - python with PyPDF2
 - node
 - make
