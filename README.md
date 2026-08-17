@@ -55,47 +55,49 @@ For a paper directory elsewhere, pass it separately:
 ```
 
 The default target converts the `.docx` to Pandoc JSON, extracts and converts
-figures, applies the fcktaps filters, emits ACM LaTeX, and builds `paper.pdf`.
+figures, applies the fcktaps filters, emits ACM LaTeX, and builds
+`build/paper.pdf`.
 Pass `-c` or `--compress` to prepare the generated sources, compress every
-referenced PDF figure in the generated `figures/media` tree, build `paper.pdf`
-from those compressed figures, and then compress the final PDF. Each compressed
-result atomically replaces its generated PDF only after Ghostscript succeeds;
-persistent source files in `figures/override` are never modified.
+referenced PDF figure in the generated `build/figures/media` tree, build
+`build/paper.pdf` from those compressed figures, and then compress the final
+PDF. Each compressed result atomically replaces its generated PDF only after
+Ghostscript succeeds; persistent source files in `figures/override` are never
+modified.
 
 ```sh
 ./fcktaps --compress "/path/to/manuscript.docx"
 ```
 
 Pass `-cf` or `--compress-figures` to compress the referenced PDF figures before
-building `paper.pdf`, without applying a second compression pass to the final
-document:
+building `build/paper.pdf`, without applying a second compression pass to the
+final document:
 
 ```sh
 ./fcktaps --compress-figures "/path/to/manuscript.docx"
 ```
 
-Pass `-p`, `--publish`, or `--package` to create `paper.zip` after a successful
-build. These three flags are aliases. The ZIP follows the ACM TAPS directory
-layout: `source/` contains `paper.tex`, the bibliography, and exactly the
-figures referenced by the generated LaTeX; `pdf/` contains `paper.pdf`.
+Pass `-p`, `--publish`, or `--package` to create `build/paper.zip` after a
+successful build. These three flags are aliases. The ZIP follows the ACM TAPS
+directory layout: `source/` contains `paper.tex`, the bibliography, and exactly
+the figures referenced by the generated LaTeX; `pdf/` contains `paper.pdf`.
 
 ```sh
 ./fcktaps --publish "/path/to/manuscript.docx"
 ```
 
 The TAPS dashboard supplies the required final archive name in the form
-`ProceedingAcronym-PaperID.zip`; rename `paper.zip` to that value before upload.
-Use `-c -p` together to compress the PDF before it is added to the package.
+`ProceedingAcronym-PaperID.zip`; rename `build/paper.zip` to that value before
+upload. Use `-c -p` together to compress the PDF before it is added to the package.
 Use `-cf -p` to package compressed figure sources with the original final PDF.
 Both compression modes are independent and work without any publishing flag.
 
-Use `make clean` from either the toolkit or paper directory to remove generated
-files, including `paper.pdf`, `paper.zip`, and interrupted compression/package
-temporary files. Cleaning removes `figures/media`; it preserves
-`figures/override`, `alt-text.txt`, and the paper-local `frontmatter` directory. Every
-`fcktaps` build runs this cleanup before rebuilding. If the paper directory is
-not next to this repository, also pass the checkout path, for example
-`FCKTAPS=/path/to/fcktaps`.
+Use `make clean` from either the toolkit or paper directory to remove the whole
+`build` directory, along with the artefacts of paper directories built before
+that directory existed. Cleaning preserves every persistent file: `zotero.bib`,
+`reference_keys.csv`, `figures/override`, `alt-text.txt`, `fcktaps.mk`, and the
+paper-local `frontmatter` directory. Every `fcktaps` build runs this cleanup
+before rebuilding. If the paper directory is not next to this repository, also
+pass the checkout path, for example `FCKTAPS=/path/to/fcktaps`.
 
 The build warns when the paper title or a section heading is not in title case.
 Structural labels such as `ACKNOWLEDGMENTS` and `REFERENCES` are excluded, and
@@ -111,11 +113,38 @@ character style is converted to ACM SIGCHI inline code. Each affected text
 segment is reported by default as a `DEBUG --` message, with only `DEBUG`
 rendered in bold bright cyan.
 
+## Build directory
+
+Every generated file lives in the paper directory's `build/`, which keeps them
+apart from the persistent files that a paper is edited through. Nothing outside
+`build/` is generated, and nothing inside it is edited by hand:
+
+```text
+paper/                   persistent, edited by you
+├── zotero.bib
+├── reference_keys.csv
+├── alt-text.txt
+├── fcktaps.mk           optional paper-local settings
+├── frontmatter/
+├── figures/override/
+└── build/               generated, removed by `make clean`
+    ├── paper.tex        the generated LaTeX
+    ├── paper.pdf        the built document
+    ├── paper.zip        the TAPS package, with -p
+    ├── zotero.bib       copy of the persistent bibliography
+    └── figures/media/   extracted and converted artwork
+```
+
+LaTeX runs inside `build/`, so the generated `paper.tex` refers to its figures
+and bibliography by paths relative to that directory, and `build/` is itself
+the source tree that `--publish` packages. Set `BUILD_DIR` to use a different
+directory name.
+
 ## Figure overrides
 
-Persistent replacements live in `paper/figures/override` and use names such as
-`figure5--material+machine-calibration.pdf`. Descriptive slugs may separate
-words with hyphens or plus signs. On every build, the portion before `--`
+Persistent replacements live in `paper/figures/override`, outside the build
+directory, and use names such as `figure5--material+machine-calibration.pdf`.
+Descriptive slugs may separate words with hyphens or plus signs. On every build, the portion before `--`
 maps the readable override name to the publication figure number and the
 generated LaTeX prefers the override PDF. `make clean` preserves this directory.
 Add `-h` after the figure number, as in
@@ -134,6 +163,44 @@ figures within the subsection where they occur.
 The build warns for every non-PDF override and for artwork that differs from
 the `acmart` publication width (7.0 inches for Figure 1, 3.33 inches for
 single-column figures, ±0.05-inch tolerance). Figure height is not validated.
+
+## Paper-local settings
+
+Optional per-paper build settings live in the paper directory's `fcktaps.mk`,
+which the build reads before its own defaults. Both `make` in the paper
+directory and the `fcktaps` command honour it:
+
+```make
+# Citation style: acmnumeric (CHI, UIST) or acmauthoryear (SIGGRAPH).
+CITE_STYLE := acmauthoryear
+```
+
+`acmnumeric` is the default and cites as `[1]`; `acmauthoryear` cites as
+`[Kovacs et al. 2018]` and prints an unnumbered, alphabetical reference list.
+Both styles use `ACM-Reference-Format.bst`. A `CITE_STYLE=` value passed on the
+`make` command line overrides the file.
+
+`FIGURE_ONE_PLACEMENT` chooses where the title image goes. The default `float`
+sets Figure 1 as a full-width float after the rendered ACM frontmatter, so it
+lands at the top of a later page. `teaser` puts it in acmart's teaser slot,
+between the author block and the abstract on the first page:
+
+```make
+FIGURE_ONE_PLACEMENT := teaser
+```
+
+`WIDE_FIGURES` lists the figures that span both columns instead of one. Figure 1
+is always full width and needs no entry:
+
+```make
+WIDE_FIGURES := 2 5
+```
+
+A two-column float can only be set at the top of a page, and never on the page
+its text appears on, so a wide figure is placed at the top of a following page
+and ignores an override's `-h` flag. The `acmart` publication width warning
+follows this list: figures named here are checked against 7.0 inches rather
+than 3.33.
 
 ## Figure descriptions
 
@@ -168,7 +235,8 @@ rebuild of the generated LaTeX. `make clean` never removes them. Set
 `FRONTMATTER_DIR` to use a different paper-local directory.
 
 The rendered abstract, CCS concepts, keywords, rights banner, and ACM reference
-format precede the full-width Figure 1.
+format precede the full-width Figure 1, unless `FIGURE_ONE_PLACEMENT := teaser`
+moves it into the first-page teaser slot.
 
 ## Reference validation
 

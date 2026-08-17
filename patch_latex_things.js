@@ -15,6 +15,53 @@ const load_frontmatter = () => {
 	]));
 };
 
+// CHI and UIST cite numerically; SIGGRAPH cites author-year. Both use
+// ACM-Reference-Format.bst, which follows whichever \citestyle acmart is given.
+const CITE_STYLES = new Set(["acmnumeric", "acmauthoryear"]);
+
+const cite_style = () => {
+	const style = (process.env.FCKTAPS_CITE_STYLE || "acmnumeric").trim();
+	if (!CITE_STYLES.has(style)) {
+		throw new Error(
+			`FCKTAPS_CITE_STYLE must be one of ${[...CITE_STYLES].join(", ")}, got "${style}"`
+		);
+	}
+	return style;
+};
+
+// Figure 1 either rides along with the ACM frontmatter as a full-width float
+// ("float"), or fills acmart's teaser slot directly below the author block on
+// the first page ("teaser").
+const FIGURE_ONE_PLACEMENTS = new Set(["float", "teaser"]);
+
+const figure_one_placement = () => {
+	const placement = (process.env.FCKTAPS_FIGURE_ONE_PLACEMENT || "float").trim();
+	if (!FIGURE_ONE_PLACEMENTS.has(placement)) {
+		throw new Error(
+			"FCKTAPS_FIGURE_ONE_PLACEMENT must be one of "
+			+ `${[...FIGURE_ONE_PLACEMENTS].join(", ")}, got "${placement}"`
+		);
+	}
+	return placement;
+};
+
+// Publication figure numbers that span both columns instead of one. Figure 1 is
+// always full width, so it needs no entry.
+const wide_figures = () => new Set(
+	(process.env.FCKTAPS_WIDE_FIGURES || "")
+		.split(/[\s,]+/)
+		.filter(Boolean)
+		.map(value => {
+			const figure_number = Number(value);
+			if (!Number.isInteger(figure_number) || figure_number < 1) {
+				throw new Error(
+					`FCKTAPS_WIDE_FIGURES must list figure numbers, got "${value}"`
+				);
+			}
+			return figure_number;
+		})
+);
+
 const load_alt_text = () => {
 	const filename = process.env.FCKTAPS_ALT_TEXT_FILE;
 	if (!filename || !fs.existsSync(filename)) return new Map();
@@ -190,6 +237,8 @@ const MetaList = (items) => ({
 		const doc = JSON.parse(stdin_content);
 		const frontmatter = load_frontmatter();
 		const altText = load_alt_text();
+		const figureOnePlacement = figure_one_placement();
+		const wideFigures = wide_figures();
 		
 		let blocks = doc.blocks;
 
@@ -260,16 +309,21 @@ const MetaList = (items) => ({
 			const force_here = figure.c[0][2].some(([key, value]) =>
 				key === "fcktaps-latex-placement" && value === "H"
 			);
-			const placement = force_here ? "H" : "h";
+			// A two-column float can only be set at the top of a page, so a wide
+			// figure ignores the override's [H] placement.
+			const wide = wideFigures.has(figureNumber);
+			const environment = wide ? "figure*" : "figure";
+			const placement = wide ? "t" : force_here ? "H" : "h";
+			const width = wide ? "\\textwidth" : "\\columnwidth";
 			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
 			const parts = [
-				RawLatex(`\\begin{figure}[${placement}]\n\\centering\n\\includegraphics[width=\\columnwidth]{${image.c[2][0]}}`),
+				RawLatex(`\\begin{${environment}}[${placement}]\n\\centering\n\\includegraphics[width=${width}]{${image.c[2][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${escape_latex_text(alt)}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),
-				RawLatex(`}${label}\n\\end{figure}`),
+				RawLatex(`}${label}\n\\end{${environment}}`),
 			);
 			return Para(parts);
 		};
@@ -286,14 +340,17 @@ const MetaList = (items) => ({
 			const alt = get_alt_text(figure, 1);
 			const image = get_figure_image(figure);
 			const label = figure.c[0][0] ? `\\label{${figure.c[0][0]}}` : "";
+			const teaser = figureOnePlacement === "teaser";
+			const environment = teaser ? "teaserfigure" : "figure*";
+			const open = teaser ? `\\begin{${environment}}` : `\\begin{${environment}}[t]`;
 			const parts = [
-				RawLatex(`\\begin{figure*}[t]\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
+				RawLatex(`${open}\n\\centering\n\\includegraphics[width=\\textwidth]{${image.c[2][0]}}`),
 			];
 			if (alt) parts.push(RawLatex(`\\Description{${escape_latex_text(alt)}}`));
 			parts.push(
 				RawLatex("\\caption{"),
 				...get_caption_inlines(figure),
-				RawLatex(`}${label}\n\\end{figure*}`),
+				RawLatex(`}${label}\n\\end{${environment}}`),
 			);
 			return Para(parts);
 		};
@@ -332,6 +389,7 @@ const MetaList = (items) => ({
 		blocks = [
 			RawLatexPara(`
 \\documentclass[sigconf,screen]{acmart}
+\\citestyle{${cite_style()}}
 \\usepackage{graphicx}
 \\usepackage[utf8]{inputenc}
 \\usepackage[T1]{fontenc}
@@ -358,12 +416,19 @@ const MetaList = (items) => ({
 			RawLatexPara(frontmatter.rights),
 			render_keywords(doc.meta.keywords.c.map(item => item.c)),
 			RawLatexPara(frontmatter.authors),
+			// acmart sets the teaser between the author block and the abstract on
+			// the first page, so it has to be declared before \maketitle.
+			...(figure_one && figureOnePlacement === "teaser"
+				? [render_figure_one(figure_one)]
+				: []),
 			RawLatexPara(`
 \\maketitle`),
-			...(figure_one ? [render_figure_one(figure_one)] : []),
+			...(figure_one && figureOnePlacement === "float"
+				? [render_figure_one(figure_one)]
+				: []),
 			...blocks,
 			RawLatexPara("\\FloatBarrier"),
-			render_acknoledgements(doc.meta.acknoledgements),
+			...(doc.meta.acknoledgements ? [render_acknoledgements(doc.meta.acknoledgements)] : []),
 			RawLatexPara(`
 \\bibliographystyle{ACM-Reference-Format}
 \\bibliography{zotero}

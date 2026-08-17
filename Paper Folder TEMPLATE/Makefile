@@ -1,18 +1,45 @@
 DOCX ?=
 FCKTAPS ?= $(if $(wildcard ../patch_latex_things.js),$(abspath ..),$(abspath ../fcktaps))
+# Optional paper-local settings, such as CITE_STYLE. Read here so that they
+# apply to both `make` in the paper directory and the fcktaps command.
+-include fcktaps.mk
+# Every generated file lives below $(BUILD_DIR); `make clean` removes it whole.
+# Persistent inputs stay in the paper directory: zotero.bib, reference_keys.csv,
+# $(ALT_TEXT_FILE), $(FRONTMATTER_DIR), and $(FIGURE_OVERRIDES).
+BUILD_DIR ?= build
 FIGURE_OVERRIDES ?= figures/override
 OVERRIDE_FILES := $(wildcard $(FIGURE_OVERRIDES)/*)
 FRONTMATTER_DIR ?= frontmatter
 FRONTMATTER_FILES := $(addprefix $(FRONTMATTER_DIR)/,authors.tex ccs.tex rights.tex)
 ALT_TEXT_FILE ?= alt-text.txt
 ALT_TEXT_DEPENDENCY := $(wildcard $(ALT_TEXT_FILE))
-WARNINGS_FILE ?= .fcktaps-warnings
+# acmnumeric (CHI/UIST) or acmauthoryear (SIGGRAPH)
+CITE_STYLE ?= acmnumeric
+# float (full-width float after the ACM frontmatter) or teaser (acmart's teaser
+# slot on the first page)
+FIGURE_ONE_PLACEMENT ?= float
+# Figure numbers to set across both columns, for example "2 5"
+WIDE_FIGURES ?=
+WARNINGS_FILE ?= $(BUILD_DIR)/.fcktaps-warnings
+MEDIA_DIR := $(BUILD_DIR)/figures/media
 
-.PHONY: all prepare compile clean check-input check-packages paper_indexed.json figure-overrides
+# LaTeX runs inside $(BUILD_DIR), which holds every file the generated
+# paper.tex references, so the build directory is also the TAPS source tree.
+define latex_passes
+	-cd $(BUILD_DIR) && pdflatex -interaction=nonstopmode paper.tex
+	-cd $(BUILD_DIR) && bibtex paper
+	-cd $(BUILD_DIR) && pdflatex -interaction=nonstopmode paper.tex
+	cd $(BUILD_DIR) && pdflatex -interaction=nonstopmode paper.tex
+endef
 
-all: prepare paper.pdf
+.PHONY: all prepare compile clean check-input check-packages \
+	$(BUILD_DIR)/paper_indexed.json $(BUILD_DIR)/figure-overrides
 
-prepare: check-packages
+all: prepare $(BUILD_DIR)/paper.pdf
+
+# The bibliography copy belongs to source preparation: --compress validates
+# every file the generated LaTeX references before the LaTeX passes run.
+prepare: check-packages $(BUILD_DIR)/zotero.bib
 
 check-input:
 	@test -n "$(DOCX)" || { \
@@ -24,63 +51,73 @@ check-input:
 		exit 2; \
 	}
 
-paper.json: | check-input
+$(BUILD_DIR):
+	@mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/paper.json: | check-input $(BUILD_DIR)
 	pandoc "$(DOCX)" \
 		--from=docx+styles --to=json --output=$@ \
-		--extract-media=figures
+		--extract-media=$(BUILD_DIR)/figures
 
-figures-converted: paper.json
-	python3 "$(FCKTAPS)/convert_figures.py" figures/media
+$(BUILD_DIR)/figures-converted: $(BUILD_DIR)/paper.json
+	python3 "$(FCKTAPS)/convert_figures.py" $(MEDIA_DIR)
 	@touch $@
 
-paper_indexed.json: paper.json figures-converted zotero.bib reference_keys.csv
+$(BUILD_DIR)/paper_indexed.json: $(BUILD_DIR)/paper.json $(BUILD_DIR)/figures-converted zotero.bib reference_keys.csv
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
 	FCKTAPS_FIGURE_OVERRIDES="$(FIGURE_OVERRIDES)" \
-		pandoc paper.json --from=json --to=json --output=$@ \
+		pandoc $(BUILD_DIR)/paper.json --from=json --to=json --output=$@ \
 		--filter="$(FCKTAPS)/validate_references.js" \
 		--filter="$(FCKTAPS)/link_refs_to_bibliography.js" \
 		--filter="$(FCKTAPS)/index.js"
 
-figure-overrides: paper_indexed.json $(OVERRIDE_FILES)
+$(BUILD_DIR)/figure-overrides: $(BUILD_DIR)/paper_indexed.json $(OVERRIDE_FILES)
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
+	FCKTAPS_WIDE_FIGURES="$(WIDE_FIGURES)" \
 		python3 "$(FCKTAPS)/apply_figure_overrides.py" \
-		"$(FIGURE_OVERRIDES)" figures/media paper_indexed.json
+		"$(FIGURE_OVERRIDES)" $(MEDIA_DIR) $(BUILD_DIR)/paper_indexed.json
 	@touch $@
 
-paper_filtered.json: paper_indexed.json figure-overrides $(FRONTMATTER_FILES) $(ALT_TEXT_DEPENDENCY)
+$(BUILD_DIR)/paper_filtered.json: $(BUILD_DIR)/paper_indexed.json $(BUILD_DIR)/figure-overrides $(FRONTMATTER_FILES) $(ALT_TEXT_DEPENDENCY)
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
 	FCKTAPS_FRONTMATTER_DIR="$(FRONTMATTER_DIR)" \
 	FCKTAPS_ALT_TEXT_FILE="$(ALT_TEXT_FILE)" \
-		pandoc paper_indexed.json --from=json --to=json --output=$@ \
+	FCKTAPS_CITE_STYLE="$(CITE_STYLE)" \
+	FCKTAPS_FIGURE_ONE_PLACEMENT="$(FIGURE_ONE_PLACEMENT)" \
+	FCKTAPS_WIDE_FIGURES="$(WIDE_FIGURES)" \
+	FCKTAPS_BUILD_DIR="$(BUILD_DIR)" \
+		pandoc $(BUILD_DIR)/paper_indexed.json --from=json --to=json --output=$@ \
 		--filter="$(FCKTAPS)/rewrite_paths_as_pdf_images.js" \
 		--filter="$(FCKTAPS)/patch_latex_things.js"
 
-paper_unpatched.tex: paper_filtered.json
+$(BUILD_DIR)/paper_unpatched.tex: $(BUILD_DIR)/paper_filtered.json
 	pandoc $< --from=json --to=latex --natbib --output=$@
 
-paper.tex: paper_unpatched.tex
+$(BUILD_DIR)/paper.tex: $(BUILD_DIR)/paper_unpatched.tex
 	cp $< $@
 
-check-packages: paper.tex
+check-packages: $(BUILD_DIR)/paper.tex
 	FCKTAPS_WARNINGS_FILE="$(WARNINGS_FILE)" \
-		python3 "$(FCKTAPS)/check_latex_packages.py" paper.tex
+		python3 "$(FCKTAPS)/check_latex_packages.py" $(BUILD_DIR)/paper.tex
 
-paper.pdf: paper.tex zotero.bib
-	-pdflatex -interaction=nonstopmode paper.tex
-	-bibtex paper
-	-pdflatex -interaction=nonstopmode paper.tex
-	pdflatex -interaction=nonstopmode paper.tex
+# The generated LaTeX cites \bibliography{zotero}, so the build directory keeps
+# its own copy of the persistent bibliography.
+$(BUILD_DIR)/zotero.bib: zotero.bib | $(BUILD_DIR)
+	cp $< $@
+
+$(BUILD_DIR)/paper.pdf: $(BUILD_DIR)/paper.tex $(BUILD_DIR)/zotero.bib
+	$(latex_passes)
 
 compile:
-	-pdflatex -interaction=nonstopmode paper.tex
-	-bibtex paper
-	-pdflatex -interaction=nonstopmode paper.tex
-	pdflatex -interaction=nonstopmode paper.tex
+	@mkdir -p $(BUILD_DIR)
+	cp zotero.bib $(BUILD_DIR)/zotero.bib
+	$(latex_passes)
 
 clean:
-	rm -f paper.json paper_indexed.json paper_filtered.json paper.tex paper_unpatched.tex
-	rm -f paper.pdf paper.zip paper-compressed.pdf .paper.zip.tmp
-	rm -f paper.bbl paper.blg paper.aux paper.log paper.out comment.cut figures-converted figure-overrides
-	# Persistent figure overrides and frontmatter live outside generated media.
-	rm -rf figures/media
+	rm -rf $(BUILD_DIR)
 	python3 "$(FCKTAPS)/report_warnings.py" clear "$(WARNINGS_FILE)"
+	# Artefacts of paper directories built before the build directory existed.
+	rm -f paper.json paper_indexed.json paper_filtered.json paper.tex paper_unpatched.tex
+	rm -f paper.pdf paper.zip paper-compressed.pdf .paper.zip.tmp .fcktaps-warnings
+	rm -f paper.bbl paper.blg paper.aux paper.log paper.out comment.cut figures-converted figure-overrides
+	rm -rf figures/media

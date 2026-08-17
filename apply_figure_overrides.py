@@ -79,6 +79,12 @@ def raster_size_inches(path: Path):
         return None
 
 
+def wide_figures() -> set[int]:
+    """Return the figure numbers set across both columns."""
+    values = os.environ.get("FCKTAPS_WIDE_FIGURES", "").replace(",", " ").split()
+    return {int(value) for value in values if value.isdigit()}
+
+
 def warn_about_format_and_size(source: Path, figure_number: int) -> None:
     is_pdf = source.suffix.lower() == ".pdf"
     if not is_pdf:
@@ -90,9 +96,12 @@ def warn_about_format_and_size(source: Path, figure_number: int) -> None:
         return
 
     width, _ = size
-    target_width = DOUBLE_COLUMN_WIDTH_IN if figure_number == 1 else SINGLE_COLUMN_WIDTH_IN
+    is_double_column = figure_number == 1 or figure_number in wide_figures()
+    target_width = DOUBLE_COLUMN_WIDTH_IN if is_double_column else SINGLE_COLUMN_WIDTH_IN
     if abs(width - target_width) > SIZE_TOLERANCE_IN:
-        role = "teaser" if figure_number == 1 else "single-column"
+        role = "teaser" if figure_number == 1 else (
+            "two-column" if is_double_column else "single-column"
+        )
         warn(
             f"{source.name} is {width:.2f} in wide; the {role} template width is "
             f"{target_width:.2f} in (tolerance ±{SIZE_TOLERANCE_IN:.2f} in)"
