@@ -113,6 +113,48 @@ character style is converted to ACM SIGCHI inline code. Each affected text
 segment is reported by default as a `DEBUG --` message, with only `DEBUG`
 rendered in bold bright cyan.
 
+## Converting from Word
+
+On macOS, a Word add-in runs the same conversion from a **Convert to TAPS**
+button on Word's Home tab. Install it once from the `fcktaps` repository
+directory:
+
+```sh
+./fcktaps word install
+```
+
+Word loads add-ins only over trusted HTTPS, and it is sandboxed, so it can run
+neither pandoc nor LaTeX itself. Installing therefore:
+
+- creates a self-signed certificate for `localhost` in
+  `~/Library/Application Support/fcktaps` and trusts it in the login keychain
+  (macOS asks for your password),
+- sideloads the add-in manifest into Word, and
+- registers a launch agent that keeps the add-in server running on
+  `https://localhost:3417`, logging to `~/Library/Logs/fcktaps-word.log`.
+
+The launch agent keeps the `PATH` of the shell that ran the install, so run it
+from a shell that finds pandoc, node, make, and pdflatex. Pass `--no-agent` to
+skip the launch agent and start the server yourself with `./fcktaps word serve`.
+
+Restart Word, then choose **Insert > Add-ins > My Add-ins** and pick `fcktaps`
+once. From then on, **Convert to TAPS** opens a task pane that saves the
+manuscript, builds it, lists the warnings and errors of the build, and opens
+`build/paper.pdf` when the build succeeds.
+
+The add-in uses the `paper` folder next to the manuscript as its paper
+directory, so keep `YOUR PAPER.docx` and `paper/` side by side. When that folder
+is missing, the task pane offers to create it from the template. The
+manuscript must be saved to a local folder; the add-in cannot convert a copy
+that exists only online. On the first build, macOS may ask whether Python may
+access the folder that holds the manuscript.
+
+Remove the add-in, its server, and its certificate with:
+
+```sh
+./fcktaps word uninstall
+```
+
 ## Build directory
 
 Every generated file lives in the paper directory's `build/`, which keeps them

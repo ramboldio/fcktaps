@@ -1,0 +1,247 @@
+:root {
+	color-scheme: light dark;
+	--bg: #ffffff;
+	--fg: #1f1f1f;
+	--muted: #616161;
+	--border: #e0e0e0;
+	--surface: #f5f5f5;
+	--accent: #2b579a;
+	--accent-fg: #ffffff;
+	--error: #b3261e;
+	--error-bg: #fdecea;
+	--warning: #8a5300;
+	--warning-bg: #fff4e0;
+	--success: #0e6b2f;
+	--success-bg: #e6f4ea;
+	--debug: #3d5a80;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #1f1f1f;
+		--fg: #f0f0f0;
+		--muted: #a8a8a8;
+		--border: #3a3a3a;
+		--surface: #2a2a2a;
+		--accent: #6d9bd8;
+		--accent-fg: #0d1b2e;
+		--error: #f2b8b5;
+		--error-bg: #3c1f1d;
+		--warning: #f5c77e;
+		--warning-bg: #3a2c12;
+		--success: #9fd8ae;
+		--success-bg: #173222;
+		--debug: #a9c3e8;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+main {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px;
+}
+
+h1 {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.subtitle,
+.muted {
+	margin: 0;
+	color: var(--muted);
+}
+
+.mono,
+code,
+pre {
+	font-family: ui-monospace, "SF Mono", Menlo, monospace;
+	font-size: 11px;
+}
+
+.paths {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 4px 10px;
+	margin: 0;
+}
+
+.paths dt {
+	color: var(--muted);
+}
+
+.paths dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+button {
+	border-radius: 4px;
+	padding: 7px 14px;
+	font: inherit;
+	cursor: pointer;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.primary {
+	border: none;
+	background: var(--accent);
+	color: var(--accent-fg);
+	font-weight: 600;
+}
+
+.secondary {
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--fg);
+	align-self: flex-start;
+}
+
+.notice {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px 12px;
+	border-radius: 4px;
+	background: var(--warning-bg);
+}
+
+.notice p {
+	margin: 0;
+}
+
+#progress,
+#result {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+[hidden] {
+	display: none !important;
+}
+
+.progress-line {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#last-line {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.spinner {
+	width: 14px;
+	height: 14px;
+	border: 2px solid var(--border);
+	border-top-color: var(--accent);
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.summary {
+	padding: 10px 12px;
+	border-radius: 4px;
+	font-weight: 600;
+}
+
+.summary.succeeded {
+	background: var(--success-bg);
+	color: var(--success);
+}
+
+.summary.failed {
+	background: var(--error-bg);
+	color: var(--error);
+}
+
+.messages {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.messages li {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 8px 10px;
+	border-left: 3px solid var(--border);
+	background: var(--surface);
+	overflow-wrap: anywhere;
+}
+
+.messages .level {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+}
+
+.messages .error {
+	border-left-color: var(--error);
+}
+
+.messages .error .level {
+	color: var(--error);
+}
+
+.messages .warning {
+	border-left-color: var(--warning);
+}
+
+.messages .warning .level {
+	color: var(--warning);
+}
+
+.messages .debug .level {
+	color: var(--debug);
+}
+
+details summary {
+	color: var(--muted);
+	cursor: pointer;
+}
+
+pre {
+	max-height: 320px;
+	overflow: auto;
+	margin: 6px 0 0;
+	padding: 8px;
+	background: var(--surface);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.alert {
+	margin: 0;
+	color: var(--error);
+}

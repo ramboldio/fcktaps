@@ -38,7 +38,10 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="fcktaps",
         description="Convert a Word manuscript to ACM TAPS-compatible LaTeX and PDF.",
-        epilog="Run 'fcktaps init [PATH]' to create a new paper directory.",
+        epilog=(
+            "Run 'fcktaps init [PATH]' to create a new paper directory, or "
+            "'fcktaps word install' to convert from inside Microsoft Word."
+        ),
     )
     result.add_argument("-V", "--verbose", action="store_true", help="show the complete Pandoc, BibTeX, and LaTeX output")
     result.add_argument(
@@ -420,6 +423,11 @@ def create_taps_package(paper_dir: Path) -> Path:
 def main() -> None:
     if sys.argv[1:2] == ["init"]:
         init_paper_dir(sys.argv[2:])
+        return
+    if sys.argv[1:2] == ["word"]:
+        from word_addin import main as word_main
+
+        word_main(sys.argv[2:])
         return
 
     args = parser().parse_args()
