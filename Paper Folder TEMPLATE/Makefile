@@ -22,6 +22,10 @@ FIGURE_ONE_PLACEMENT ?= float
 SHORT_TITLE ?=
 # Figure numbers to set across both columns, for example "2 5"
 WIDE_FIGURES ?=
+# acmart's review option (line numbers for reviewers): true or false
+REVIEW ?= false
+# acmart's anonymous option: true, false, or empty to leave it out
+ANONYMOUS ?=
 # Name of the TAPS submission archive, without the .zip suffix. The TAPS
 # dashboard supplies it as ProceedingAcronym-PaperID.
 PACKAGE_NAME ?= paper
@@ -91,6 +95,8 @@ $(BUILD_DIR)/paper_filtered.json: $(BUILD_DIR)/paper_indexed.json $(BUILD_DIR)/f
 	FCKTAPS_FIGURE_ONE_PLACEMENT="$(FIGURE_ONE_PLACEMENT)" \
 	FCKTAPS_SHORT_TITLE="$(SHORT_TITLE)" \
 	FCKTAPS_WIDE_FIGURES="$(WIDE_FIGURES)" \
+	FCKTAPS_REVIEW="$(REVIEW)" \
+	FCKTAPS_ANONYMOUS="$(ANONYMOUS)" \
 	FCKTAPS_BUILD_DIR="$(BUILD_DIR)" \
 		pandoc $(BUILD_DIR)/paper_indexed.json --from=json --to=json --output=$@ \
 		--filter="$(FCKTAPS)/rewrite_paths_as_pdf_images.js" \

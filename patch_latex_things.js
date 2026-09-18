@@ -50,6 +50,35 @@ const figure_one_placement = () => {
 // full title itself and warns while doing so.
 const short_title = () => (process.env.FCKTAPS_SHORT_TITLE || "").trim();
 
+// acmart's review option numbers the lines of a submission for reviewers, and
+// its anonymous option hides the authors. Venues state both in their call for
+// papers; anonymous is written out whenever it is set, since some calls ask
+// for anonymous=false explicitly.
+const BOOLEANS = new Map([["true", true], ["false", false]]);
+
+const boolean_setting = (name, fallback) => {
+	const value = (process.env[name] || "").trim().toLowerCase();
+	if (!value) {
+		return fallback;
+	}
+	if (!BOOLEANS.has(value)) {
+		throw new Error(`${name} must be true or false, got "${process.env[name]}"`);
+	}
+	return BOOLEANS.get(value);
+};
+
+const document_class_options = () => {
+	const options = ["sigconf", "screen"];
+	if (boolean_setting("FCKTAPS_REVIEW", false)) {
+		options.push("review");
+	}
+	const anonymous = boolean_setting("FCKTAPS_ANONYMOUS", null);
+	if (anonymous !== null) {
+		options.push(`anonymous=${anonymous}`);
+	}
+	return options.join(",");
+};
+
 // Publication figure numbers that span both columns instead of one. Figure 1 is
 // always full width, so it needs no entry.
 const wide_figures = () => new Set(
@@ -398,7 +427,7 @@ const MetaList = (items) => ({
 
 		blocks = [
 			RawLatexPara(`
-\\documentclass[sigconf,screen]{acmart}
+\\documentclass[${document_class_options()}]{acmart}
 \\citestyle{${cite_style()}}
 \\usepackage{graphicx}
 \\usepackage[utf8]{inputenc}

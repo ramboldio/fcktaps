@@ -5,8 +5,12 @@ BUILD_DIR ?= build
 # applies to each of these that is left empty.
 CITE_STYLE ?=
 PACKAGE_NAME ?=
+REVIEW ?=
+ANONYMOUS ?=
 PAPER_SETTINGS := $(if $(CITE_STYLE),CITE_STYLE="$(CITE_STYLE)") \
-	$(if $(PACKAGE_NAME),PACKAGE_NAME="$(PACKAGE_NAME)")
+	$(if $(PACKAGE_NAME),PACKAGE_NAME="$(PACKAGE_NAME)") \
+	$(if $(REVIEW),REVIEW="$(REVIEW)") \
+	$(if $(ANONYMOUS),ANONYMOUS="$(ANONYMOUS)")
 WARNINGS_FILE := $(BUILD_DIR)/.fcktaps-warnings
 
 .PHONY: all prepare pdf package clean clear check-input

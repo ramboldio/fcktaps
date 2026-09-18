@@ -254,6 +254,22 @@ SHORT_TITLE := Demonstrating AirForce
 Left empty, `acmart` truncates the full title for the running head itself and
 warns while doing so.
 
+`REVIEW` and `ANONYMOUS` set the submission options of the `acmart` document
+class. A call for papers that asks for
+`\documentclass[sigconf, review, anonymous=false]{acmart}` becomes:
+
+```make
+REVIEW := true
+ANONYMOUS := false
+```
+
+`REVIEW := true` numbers the lines for reviewers. `ANONYMOUS := true` hides the
+authors and acknowledgements. Setting `ANONYMOUS` to `true` or `false` writes
+`anonymous=...` into `\documentclass`; left empty, the option is left out,
+which `acmart` treats as `false`. Both options add to fcktaps' own `sigconf`
+and `screen`. For the camera-ready version, set `REVIEW := false` and
+`ANONYMOUS :=`.
+
 ## Figure descriptions
 
 Persistent figure descriptions live in the paper directory's `alt-text.txt`.

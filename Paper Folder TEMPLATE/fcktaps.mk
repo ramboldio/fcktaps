@@ -12,6 +12,13 @@ FIGURE_ONE_PLACEMENT := float
 # stay single-column.
 WIDE_FIGURES :=
 
+# Submission options of the acmart document class, as a venue's call for papers
+# states them. REVIEW := true numbers the lines for reviewers. ANONYMOUS := true
+# hides the authors; true or false writes anonymous=... into \documentclass,
+# empty leaves the option out.
+REVIEW := false
+ANONYMOUS :=
+
 # Short title for the running head of every page after the first. Left empty,
 # acmart truncates the full title itself.
 SHORT_TITLE :=
