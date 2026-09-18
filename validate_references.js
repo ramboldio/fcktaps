@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { bibliography_anchors } = require("./bibliography_anchors");
 
 const readStdin = () => new Promise(resolve => {
   let data = "";
@@ -17,13 +18,6 @@ const stringify = node => {
   if (node.t === "Str") return node.c;
   if (["Space", "SoftBreak", "LineBreak"].includes(node.t)) return " ";
   return stringify(node.c);
-};
-
-const anchors = node => {
-  if (!node || typeof node !== "object") return [];
-  if (Array.isArray(node)) return node.flatMap(anchors);
-  if (node.t === "Span" && node.c[0][1]?.includes("anchor")) return [node.c[0][0]];
-  return anchors(node.c);
 };
 
 const normalize = value => value
@@ -261,8 +255,9 @@ const validate = doc => {
   if (!bibliography) { warning("Word bibliography list is missing"); return; }
 
   const anchorToKey = new Map();
+  const entryAnchors = bibliography_anchors(bibliography.c[1]);
   bibliography.c[1].forEach((item, index) => {
-    const itemAnchors = anchors(item);
+    const itemAnchors = entryAnchors[index];
     const key = keys[index];
     itemAnchors.forEach(anchor => anchorToKey.set(anchor, key));
 

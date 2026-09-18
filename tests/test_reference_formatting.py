@@ -19,23 +19,31 @@ def citation_link(number, anchor):
     }
 
 
+def anchor_span(anchor, content=None):
+    return {
+        "t": "Span",
+        "c": [[anchor, ["anchor"], []], content if content is not None else []],
+    }
+
+
 def bibliography_entry(anchor):
     return [
         {
             "t": "Para",
-            "c": [
-                {
-                    "t": "Span",
-                    "c": [[anchor, ["anchor"], []], [str_inline("Reference")]],
-                }
-            ],
+            "c": [anchor_span(anchor, [str_inline("Reference")])],
         }
     ]
 
 
+def bibliography_entry_with_inlines(inlines):
+    return [{"t": "Para", "c": inlines}]
+
+
 class ReferenceFormattingTests(unittest.TestCase):
-    def run_filter(self, inlines, keys):
+    def run_filter(self, inlines, keys, entries=None):
         anchors = [f"ref{index}" for index in range(len(keys))]
+        if entries is None:
+            entries = [bibliography_entry(anchor) for anchor in anchors]
         document = {
             "pandoc-api-version": [1, 23, 1],
             "meta": {},
@@ -45,7 +53,7 @@ class ReferenceFormattingTests(unittest.TestCase):
                     "t": "OrderedList",
                     "c": [
                         [1, {"t": "Decimal"}, {"t": "Period"}],
-                        [bibliography_entry(anchor) for anchor in anchors],
+                        entries,
                     ],
                 },
             ],
@@ -123,6 +131,72 @@ class ReferenceFormattingTests(unittest.TestCase):
         self.assertEqual(
             self.to_latex(filtered),
             r"One~\citep{first} and~\citep{second}.",
+        )
+
+
+    def test_bookmark_at_an_entry_boundary_belongs_to_the_following_entry(self):
+        # Word stores a bookmark that starts at the paragraph boundary as an
+        # empty span Pandoc reports at the end of the preceding entry.
+        entries = [
+            bibliography_entry_with_inlines(
+                [
+                    anchor_span("own0", [str_inline("First")]),
+                    str_inline(" reference"),
+                    anchor_span("boundary1"),
+                ]
+            ),
+            bibliography_entry_with_inlines(
+                [str_inline("Second reference"), anchor_span("boundary2")]
+            ),
+            bibliography_entry_with_inlines([str_inline("Third reference")]),
+        ]
+
+        filtered = self.run_filter(
+            [
+                citation_link(1, "own0"),
+                {"t": "Space"},
+                str_inline("and"),
+                {"t": "Space"},
+                citation_link(2, "boundary1"),
+                {"t": "Space"},
+                str_inline("and"),
+                {"t": "Space"},
+                citation_link(3, "boundary2"),
+            ],
+            ["first", "second", "third"],
+            entries=entries,
+        )
+
+        self.assertEqual(
+            self.to_latex(filtered),
+            r"\citep{first} and~\citep{second} and~\citep{third}",
+        )
+
+    def test_an_anchor_before_text_stays_with_its_own_entry(self):
+        entries = [
+            bibliography_entry_with_inlines(
+                [anchor_span("own0"), str_inline("First reference")]
+            ),
+            bibliography_entry_with_inlines(
+                [anchor_span("own1"), str_inline("Second reference")]
+            ),
+        ]
+
+        filtered = self.run_filter(
+            [
+                citation_link(1, "own0"),
+                {"t": "Space"},
+                str_inline("and"),
+                {"t": "Space"},
+                citation_link(2, "own1"),
+            ],
+            ["first", "second"],
+            entries=entries,
+        )
+
+        self.assertEqual(
+            self.to_latex(filtered),
+            r"\citep{first} and~\citep{second}",
         )
 
 

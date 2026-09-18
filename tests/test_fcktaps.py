@@ -35,7 +35,9 @@ class CompressPdfTests(unittest.TestCase):
     def test_compression_replaces_pdf_after_success(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
-            paper_pdf = paper_dir / "paper.pdf"
+            build_dir = paper_dir / FCKTAPS.BUILD_DIR
+            build_dir.mkdir()
+            paper_pdf = build_dir / "paper.pdf"
             paper_pdf.write_bytes(b"original")
 
             def successful_run(command, *, cwd, check):
@@ -55,25 +57,27 @@ class CompressPdfTests(unittest.TestCase):
                         "paper.pdf",
                     ],
                 )
-                self.assertEqual(cwd, paper_dir)
+                self.assertEqual(cwd, build_dir)
                 self.assertFalse(check)
-                (paper_dir / "paper-compressed.pdf").write_bytes(b"compressed")
+                (build_dir / "paper-compressed.pdf").write_bytes(b"compressed")
                 return subprocess.CompletedProcess(command, 0)
 
             with patch.object(FCKTAPS.subprocess, "run", side_effect=successful_run):
                 FCKTAPS.compress_pdf(paper_dir)
 
             self.assertEqual(paper_pdf.read_bytes(), b"compressed")
-            self.assertFalse((paper_dir / "paper-compressed.pdf").exists())
+            self.assertFalse((build_dir / "paper-compressed.pdf").exists())
 
     def test_failed_compression_preserves_original_pdf(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
-            paper_pdf = paper_dir / "paper.pdf"
+            build_dir = paper_dir / FCKTAPS.BUILD_DIR
+            build_dir.mkdir()
+            paper_pdf = build_dir / "paper.pdf"
             paper_pdf.write_bytes(b"original")
 
             def failed_run(command, *, cwd, check):
-                (paper_dir / "paper-compressed.pdf").write_bytes(b"partial")
+                (build_dir / "paper-compressed.pdf").write_bytes(b"partial")
                 return subprocess.CompletedProcess(command, 1)
 
             with patch.object(FCKTAPS.subprocess, "run", side_effect=failed_run):
@@ -83,14 +87,14 @@ class CompressPdfTests(unittest.TestCase):
                     FCKTAPS.compress_pdf(paper_dir)
 
             self.assertEqual(paper_pdf.read_bytes(), b"original")
-            self.assertFalse((paper_dir / "paper-compressed.pdf").exists())
+            self.assertFalse((build_dir / "paper-compressed.pdf").exists())
 
     def test_only_referenced_pdf_figures_are_compressed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
-            media_dir = paper_dir / "figures" / "media"
+            media_dir = paper_dir / FCKTAPS.BUILD_DIR / "figures" / "media"
             media_dir.mkdir(parents=True)
-            (paper_dir / "paper.tex").write_text(
+            (paper_dir / FCKTAPS.BUILD_DIR / "paper.tex").write_text(
                 "\\includegraphics{figures/media/image1.pdf}\n"
                 "\\includegraphics{figures/media/image2.png}\n",
                 encoding="utf8",
@@ -120,11 +124,11 @@ class CompressPdfTests(unittest.TestCase):
     def test_u_override_flag_skips_figure_compression(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
-            media_dir = paper_dir / "figures" / "media"
+            media_dir = paper_dir / FCKTAPS.BUILD_DIR / "figures" / "media"
             override_dir = paper_dir / "figures" / "override"
             media_dir.mkdir(parents=True)
-            override_dir.mkdir()
-            (paper_dir / "paper.tex").write_text(
+            override_dir.mkdir(parents=True)
+            (paper_dir / FCKTAPS.BUILD_DIR / "paper.tex").write_text(
                 "\\includegraphics{figures/media/image1.pdf}\n"
                 "\\includegraphics{figures/media/image2.pdf}\n",
                 encoding="utf8",
@@ -162,15 +166,17 @@ class TapsPackageTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
-            media_dir = paper_dir / "figures" / "media"
+            media_dir = paper_dir / FCKTAPS.BUILD_DIR / "figures" / "media"
             media_dir.mkdir(parents=True)
-            (paper_dir / "paper.tex").write_text(
+            (paper_dir / FCKTAPS.BUILD_DIR / "paper.tex").write_text(
                 "\\includegraphics{figures/media/image1.pdf}\n"
                 "\\bibliography{zotero}\n",
                 encoding="utf8",
             )
-            (paper_dir / "paper.pdf").write_bytes(b"pdf")
-            (paper_dir / "zotero.bib").write_text("@book{x}", encoding="utf8")
+            (paper_dir / FCKTAPS.BUILD_DIR / "paper.pdf").write_bytes(b"pdf")
+            (paper_dir / FCKTAPS.BUILD_DIR / "zotero.bib").write_text(
+                "@book{x}", encoding="utf8"
+            )
             (media_dir / "image1.pdf").write_bytes(b"figure")
             (media_dir / "unused.pdf").write_bytes(b"unused")
 
@@ -180,32 +186,34 @@ class TapsPackageTests(unittest.TestCase):
                 self.assertEqual(
                     set(package.namelist()),
                     {
-                        "source/",
+                        "Source/",
                         "pdf/",
-                        "source/paper.tex",
-                        "source/zotero.bib",
-                        "source/figures/media/image1.pdf",
+                        "Source/paper.tex",
+                        "Source/zotero.bib",
+                        "Source/figures/media/image1.pdf",
                         "pdf/paper.pdf",
                     },
                 )
                 self.assertEqual(
-                    package.read("source/figures/media/image1.pdf"), b"figure"
+                    package.read("Source/figures/media/image1.pdf"), b"figure"
                 )
                 self.assertEqual(package.read("pdf/paper.pdf"), b"pdf")
 
     def test_package_rejects_a_missing_referenced_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             paper_dir = Path(directory)
-            (paper_dir / "paper.tex").write_text(
+            build_dir = paper_dir / FCKTAPS.BUILD_DIR
+            build_dir.mkdir()
+            (build_dir / "paper.tex").write_text(
                 "\\includegraphics{figures/media/missing.pdf}\n",
                 encoding="utf8",
             )
-            (paper_dir / "paper.pdf").write_bytes(b"pdf")
+            (build_dir / "paper.pdf").write_bytes(b"pdf")
 
             with self.assertRaisesRegex(RuntimeError, "source file not found"):
                 FCKTAPS.create_taps_package(paper_dir)
 
-            self.assertFalse((paper_dir / "paper.zip").exists())
+            self.assertFalse((build_dir / "paper.zip").exists())
 
     def test_compression_modes_are_independent_and_run_before_packaging(
         self,

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fcktaps</title>
+  <link rel="stylesheet" href="taskpane.css">
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="taskpane.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>fcktaps</h1>
+      <p class="subtitle">Word manuscript to ACM TAPS</p>
+    </header>
+
+    <dl class="paths">
+      <dt>Manuscript</dt>
+      <dd id="document">—</dd>
+      <dt>Paper folder</dt>
+      <dd id="paper-dir">—</dd>
+    </dl>
+
+    <div id="missing-paper" class="notice" hidden>
+      <p>There is no <code>paper</code> folder next to this manuscript. It holds the
+        bibliography, reference keys, frontmatter, and settings for the build.</p>
+      <button id="init" type="button" class="secondary">Create paper folder</button>
+    </div>
+
+    <button id="convert" type="button" class="primary" disabled>Convert to TAPS</button>
+
+    <section id="progress" hidden>
+      <div class="progress-line">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="progress-label">Converting…</span>
+        <span id="elapsed" class="muted"></span>
+      </div>
+      <p id="last-line" class="muted mono"></p>
+    </section>
+
+    <section id="result" hidden>
+      <div id="summary" class="summary"></div>
+      <button id="open-pdf" type="button" class="secondary" hidden>Open PDF</button>
+      <ul id="messages" class="messages"></ul>
+      <details id="log-details">
+        <summary>Build log</summary>
+        <pre id="log"></pre>
+      </details>
+    </section>
+
+    <p id="error" class="alert" role="alert" hidden></p>
+  </main>
+</body>
+</html>

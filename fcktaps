@@ -9,12 +9,13 @@ import subprocess
 import sys
 import threading
 import time
-import zipfile
 from pathlib import Path
 
 from apply_figure_overrides import NAME_PATTERN as FIGURE_OVERRIDE_NAME_PATTERN
 from apply_figure_overrides import override_flags
 from report_warnings import print_messages, read_messages
+from taps_package import INCLUDE_GRAPHICS, package_source_files
+from taps_package import create_taps_package as create_package
 
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -28,18 +29,19 @@ LATEX_ERROR_SUMMARIES = {
     "Emergency stop.",
     "==> Fatal error occurred, no output PDF file produced!",
 }
-INCLUDE_GRAPHICS = re.compile(
-    r"\\includegraphics\*?(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}"
-)
-BIBLIOGRAPHY = re.compile(r"\\bibliography\s*\{([^}]+)\}")
-TAPS_FILENAME = re.compile(r"^[A-Za-z0-9._/-]+$")
+# Every generated file lives here, below the paper directory. LaTeX runs
+# inside it, so it doubles as the TAPS source tree.
+BUILD_DIR = "build"
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="fcktaps",
         description="Convert a Word manuscript to ACM TAPS-compatible LaTeX and PDF.",
-        epilog="Run 'fcktaps init [PATH]' to create a new paper directory.",
+        epilog=(
+            "Run 'fcktaps init [PATH]' to create a new paper directory, or "
+            "'fcktaps word install' to convert from inside Microsoft Word."
+        ),
     )
     result.add_argument("-V", "--verbose", action="store_true", help="show the complete Pandoc, BibTeX, and LaTeX output")
     result.add_argument(
@@ -364,59 +366,20 @@ def ghostscript_compress(pdf_path: Path) -> None:
 
 def compress_pdf(paper_dir: Path) -> None:
     """Compress the built paper PDF."""
-    paper_pdf = paper_dir / "paper.pdf"
+    paper_pdf = paper_dir / BUILD_DIR / "paper.pdf"
     ghostscript_compress(paper_pdf)
     print(f"Compressed PDF: {paper_pdf}")
 
 
-def package_source_files(paper_dir: Path, tex_path: Path) -> list[Path]:
-    """Return the generated TeX and every local resource it references."""
-    tex = tex_path.read_text(encoding="utf8")
-    relative_paths = {Path("paper.tex")}
-
-    for bibliography_group in BIBLIOGRAPHY.findall(tex):
-        for bibliography in bibliography_group.split(","):
-            bibliography_path = Path(bibliography.strip())
-            if not bibliography_path.suffix:
-                bibliography_path = bibliography_path.with_suffix(".bib")
-            relative_paths.add(bibliography_path)
-
-    for graphic in INCLUDE_GRAPHICS.findall(tex):
-        relative_paths.add(Path(graphic.strip()))
-
-    paper_root = paper_dir.resolve()
-    source_files = []
-    for relative_path in sorted(relative_paths, key=lambda path: path.as_posix()):
-        if relative_path.is_absolute():
-            raise RuntimeError(
-                f"TAPS source path must be relative to the paper directory: {relative_path}"
-            )
-        source_path = (paper_dir / relative_path).resolve()
-        try:
-            archive_path = source_path.relative_to(paper_root)
-        except ValueError as error:
-            raise RuntimeError(
-                f"TAPS source path escapes the paper directory: {relative_path}"
-            ) from error
-        if not source_path.is_file():
-            raise RuntimeError(f"TAPS source file not found: {relative_path}")
-        if not TAPS_FILENAME.fullmatch(archive_path.as_posix()):
-            raise RuntimeError(
-                "TAPS source filenames may contain only letters, numbers, "
-                f"periods, dashes, underscores, and directories: {archive_path}"
-            )
-        source_files.append(source_path)
-    return source_files
-
-
 def compress_figure_pdfs(paper_dir: Path) -> int:
     """Compress only PDF artwork referenced by the generated paper.tex."""
-    tex_path = paper_dir / "paper.tex"
+    build_dir = paper_dir / BUILD_DIR
+    tex_path = build_dir / "paper.tex"
     if not tex_path.is_file():
         raise RuntimeError(f"generated LaTeX not found after build: {tex_path}")
 
     # Validate all TeX dependencies before changing generated files.
-    package_source_files(paper_dir, tex_path)
+    package_source_files(build_dir, tex_path)
 
     uncompressed_figures = set()
     override_dir = paper_dir / "figures" / "override"
@@ -432,7 +395,7 @@ def compress_figure_pdfs(paper_dir: Path) -> int:
     skipped = 0
     tex = tex_path.read_text(encoding="utf8")
     for figure_number, graphic in enumerate(INCLUDE_GRAPHICS.findall(tex), 1):
-        figure_pdf = (paper_dir / graphic.strip()).resolve()
+        figure_pdf = (build_dir / graphic.strip()).resolve()
         if figure_pdf.suffix.lower() != ".pdf":
             continue
         if figure_number in uncompressed_figures:
@@ -453,43 +416,18 @@ def compress_figure_pdfs(paper_dir: Path) -> int:
 
 
 def create_taps_package(paper_dir: Path) -> Path:
-    """Create source/ and pdf/ trees in a ZIP suitable for ACM TAPS."""
-    tex_path = paper_dir / "paper.tex"
-    paper_pdf = paper_dir / "paper.pdf"
-    if not tex_path.is_file():
-        raise RuntimeError(f"generated LaTeX not found after build: {tex_path}")
-    if not paper_pdf.is_file():
-        raise RuntimeError(f"PDF not found after build: {paper_pdf}")
-
-    source_files = package_source_files(paper_dir, tex_path)
-    package_path = paper_dir / "paper.zip"
-    temporary_path = paper_dir / ".paper.zip.tmp"
-    temporary_path.unlink(missing_ok=True)
-    try:
-        with zipfile.ZipFile(
-            temporary_path,
-            mode="w",
-            compression=zipfile.ZIP_DEFLATED,
-            compresslevel=9,
-        ) as package:
-            package.writestr("source/", b"")
-            package.writestr("pdf/", b"")
-            for source_file in source_files:
-                relative_path = source_file.resolve().relative_to(paper_dir.resolve())
-                package.write(source_file, Path("source") / relative_path)
-            package.write(paper_pdf, "pdf/paper.pdf")
-        temporary_path.replace(package_path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
-
-    print(f"TAPS package: {package_path}")
-    return package_path
+    """Package the build directory of one paper for ACM TAPS."""
+    return create_package(paper_dir / BUILD_DIR)
 
 
 def main() -> None:
     if sys.argv[1:2] == ["init"]:
         init_paper_dir(sys.argv[2:])
+        return
+    if sys.argv[1:2] == ["word"]:
+        from word_addin import main as word_main
+
+        word_main(sys.argv[2:])
         return
 
     args = parser().parse_args()
@@ -510,8 +448,9 @@ def main() -> None:
         "make",
         f"DOCX={document}",
         f"PAPER_DIR={paper_dir}",
+        f"BUILD_DIR={BUILD_DIR}",
     ]
-    warnings_file = paper_dir / ".fcktaps-warnings"
+    warnings_file = paper_dir / BUILD_DIR / ".fcktaps-warnings"
     try:
         if args.compress or args.compress_figures:
             prepare_command = [*command_prefix, "clean", "prepare"]

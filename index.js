@@ -70,6 +70,20 @@ const metadata_text = meta => {
 
 const is_references_heading = text => text.trim().toLocaleLowerCase() === "references";
 
+const KEYWORDS_PREFIX = "Additional Keywords and Phrases: ";
+
+// Word paragraphs arrive either bare or wrapped in a custom-style div,
+// depending on the template. These read both shapes the same way.
+const get_block_inlines = (block) => {
+  if (!block) return [];
+  if (block.t === "Para" || block.t === "Plain") return block.c;
+  if (block.t === "Header") return block.c[2];
+  if (block.t === "Div") return block.c[1].flatMap(get_block_inlines);
+  return [];
+};
+
+const block_text = (block) => stringify_inlines(get_block_inlines(block));
+
 const normalized_inline_text = inlines => stringify_inlines(inlines)
   .replace(/\s+/g, " ")
   .trim();
@@ -529,18 +543,19 @@ const extract_chi = (doc, blocks) => {
   doc.meta.abstract = MetaInlines(abstract_inlines);
   blocks = blocks.filter(b => get_custom_style(b) !== "Abstract");
 
-  // Acknowledgements
+  // Acknowledgements (optional: extended abstracts often have none)
   const ack_idx = blocks.findIndex(b => get_custom_style(b) === "AckHead");
-  doc.meta.acknoledgements = MetaInlines(blocks[ack_idx + 1].c);
-  blocks = blocks.filter((_, i) => i !== ack_idx && i !== ack_idx + 1);
+  if (ack_idx !== -1) {
+    doc.meta.acknoledgements = MetaInlines(get_block_inlines(blocks[ack_idx + 1]));
+    blocks = blocks.filter((_, i) => i !== ack_idx && i !== ack_idx + 1);
+  }
 
-  // Keywords
-  const kw_block = blocks.find(b =>
-    b.t === "Para" && stringify_inlines(b.c).startsWith("Additional Keywords and Phrases: ")
-  );
+  // Keywords: an unstyled paragraph in some templates, a styled div in others.
+  const kw_block = blocks.find(b => block_text(b).startsWith(KEYWORDS_PREFIX));
+  if (!kw_block) throw new Error(`Could not find a "${KEYWORDS_PREFIX}" paragraph`);
   doc.meta.keywords = MetaList(
-    stringify_inlines(kw_block.c)
-      .replace("Additional Keywords and Phrases: ", "")
+    block_text(kw_block)
+      .replace(KEYWORDS_PREFIX, "")
       .replace(/\.$/, "")
       .split(", ")
   );
@@ -575,8 +590,8 @@ const extract_chi = (doc, blocks) => {
 
   // Boilerplate
   blocks = blocks.filter(b => {
-    if (b.t !== "Para" && b.t !== "Header") return true;
-    const text = b.t === "Para" ? stringify_inlines(b.c) : stringify_inlines(b.c[2]);
+    if (b.t !== "Para" && b.t !== "Header" && b.t !== "Div") return true;
+    const text = block_text(b);
     return !(
       text.startsWith("First Author's Name, Initials,") ||
       text.startsWith("First author's affiliation") ||

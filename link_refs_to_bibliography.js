@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { bibliography_anchors } = require("./bibliography_anchors");
 
 // Read all stdin
 const readStdin = () => {
@@ -17,8 +18,9 @@ const readStdin = () => {
 // Parse reference_keys.csv: one BibTeX key per Word bibliography entry.
 function parseReferenceKeys(csvPath) {
   const content = fs.readFileSync(csvPath, "utf8");
-  const mapping = {};
-  return content.split("\n").filter(str => str.length != 0);
+  // Trim so CRLF line endings do not leak a carriage return into the key,
+  // which would make bibtex skip the citation.
+  return content.split("\n").map(str => str.trim()).filter(str => str.length != 0);
 }
 
 const stringify_inlines = (inline_blocks) => inline_blocks.map(b => {
@@ -176,20 +178,10 @@ const convert_link_to_cite = (inline_block, mapping) => {
 		const doc = JSON.parse(stdin_content);
 		let blocks = doc.blocks;
 
-		// Extract bibliography entries from ordered list.
-		// Use a deep recursive search to find all anchor IDs, regardless of nesting.
-		const deep_get_anchors = (node) => {
-			if (!node || typeof node !== "object") return [];
-			if (Array.isArray(node)) return node.flatMap(deep_get_anchors);
-			if (node.t === "Span" && node.c[0][1] && node.c[0][1][0] === "anchor") return [node.c[0][0]];
-			if (node.c) return deep_get_anchors(node.c);
-			return [];
-		};
-
+		// Extract the Word anchors of every bibliography entry from the ordered
+		// list, including the boundary bookmarks Pandoc reports one entry early.
 		const olist = blocks.find(b => b.t === "OrderedList");
-		const word_entries = olist
-			? olist.c[1].map(item => deep_get_anchors(item))
-			: [];
+		const word_entries = olist ? bibliography_anchors(olist.c[1]) : [];
 
 		// One bibliography entry can carry multiple Word anchor IDs when Word has
 		// merged duplicate references. All of those anchors share one CSV key.

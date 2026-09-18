@@ -1,6 +1,21 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const path = require("path");
+
+// Figures are extracted into the build directory, but LaTeX runs inside it, so
+// the generated document refers to them relative to the build directory.
+const build_prefix = () => {
+	const directory = process.env.FCKTAPS_BUILD_DIR;
+	if (!directory) return null;
+	const normalized = path.normalize(directory).replace(/\/+$/, "");
+	return normalized && normalized !== "." ? `${normalized}/` : null;
+};
+
+const relative_to_build_dir = (image_path, prefix) =>
+	prefix && image_path.startsWith(prefix)
+		? image_path.slice(prefix.length)
+		: image_path;
 
 // Read all stdin
 const readStdin = () => {
@@ -58,6 +73,7 @@ const convertedExt = { ".svg": ".pdf", ".emf": ".png", ".EMF": ".png" };
 	readStdin()
 	  .then(async (stdin_content) => {
 	  	const doc = JSON.parse(stdin_content);
+			const prefix = build_prefix();
  			doc.blocks = doc.blocks.map(b => mapTree(b, b => {
 				if (b.t === "Image") {
 					const p = b.c[2][0];
@@ -68,10 +84,13 @@ const convertedExt = { ".svg": ".pdf", ".emf": ".png", ".EMF": ".png" };
 						: convertedExt[ext]
 							? p.slice(0, -ext.length) + convertedExt[ext]
 							: null;
-					if (replacement) {
+					// Paths are still relative to the paper directory here, which
+					// is where this filter and the extracted media both live.
+					const final_path = relative_to_build_dir(replacement ?? p, prefix);
+					if (final_path !== p) {
 						b = { ...b };
 						b.c = [...b.c];
-						b.c[2] = [replacement, b.c[2][1]];
+						b.c[2] = [final_path, b.c[2][1]];
 					}
  				}
  				return b;
