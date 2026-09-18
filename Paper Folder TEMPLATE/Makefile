@@ -18,8 +18,13 @@ CITE_STYLE ?= acmnumeric
 # float (full-width float after the ACM frontmatter) or teaser (acmart's teaser
 # slot on the first page)
 FIGURE_ONE_PLACEMENT ?= float
+# Short title for the running head; empty lets acmart truncate the full title
+SHORT_TITLE ?=
 # Figure numbers to set across both columns, for example "2 5"
 WIDE_FIGURES ?=
+# Name of the TAPS submission archive, without the .zip suffix. The TAPS
+# dashboard supplies it as ProceedingAcronym-PaperID.
+PACKAGE_NAME ?= paper
 WARNINGS_FILE ?= $(BUILD_DIR)/.fcktaps-warnings
 MEDIA_DIR := $(BUILD_DIR)/figures/media
 
@@ -32,7 +37,7 @@ define latex_passes
 	cd $(BUILD_DIR) && pdflatex -interaction=nonstopmode paper.tex
 endef
 
-.PHONY: all prepare compile clean check-input check-packages \
+.PHONY: all prepare compile package clean check-input check-packages \
 	$(BUILD_DIR)/paper_indexed.json $(BUILD_DIR)/figure-overrides
 
 all: prepare $(BUILD_DIR)/paper.pdf
@@ -84,6 +89,7 @@ $(BUILD_DIR)/paper_filtered.json: $(BUILD_DIR)/paper_indexed.json $(BUILD_DIR)/f
 	FCKTAPS_ALT_TEXT_FILE="$(ALT_TEXT_FILE)" \
 	FCKTAPS_CITE_STYLE="$(CITE_STYLE)" \
 	FCKTAPS_FIGURE_ONE_PLACEMENT="$(FIGURE_ONE_PLACEMENT)" \
+	FCKTAPS_SHORT_TITLE="$(SHORT_TITLE)" \
 	FCKTAPS_WIDE_FIGURES="$(WIDE_FIGURES)" \
 	FCKTAPS_BUILD_DIR="$(BUILD_DIR)" \
 		pandoc $(BUILD_DIR)/paper_indexed.json --from=json --to=json --output=$@ \
@@ -107,6 +113,10 @@ $(BUILD_DIR)/zotero.bib: zotero.bib | $(BUILD_DIR)
 
 $(BUILD_DIR)/paper.pdf: $(BUILD_DIR)/paper.tex $(BUILD_DIR)/zotero.bib
 	$(latex_passes)
+
+# The build directory is the TAPS source tree, so packaging archives it as is.
+package: $(BUILD_DIR)/paper.pdf
+	python3 "$(FCKTAPS)/taps_package.py" $(BUILD_DIR) "$(PACKAGE_NAME)"
 
 compile:
 	@mkdir -p $(BUILD_DIR)

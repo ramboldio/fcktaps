@@ -78,7 +78,7 @@ final document:
 
 Pass `-p`, `--publish`, or `--package` to create `build/paper.zip` after a
 successful build. These three flags are aliases. The ZIP follows the ACM TAPS
-directory layout: `source/` contains `paper.tex`, the bibliography, and exactly
+directory layout: `Source/` contains `paper.tex`, the bibliography, and exactly
 the figures referenced by the generated LaTeX; `pdf/` contains `paper.pdf`.
 
 ```sh
@@ -201,6 +201,16 @@ its text appears on, so a wide figure is placed at the top of a following page
 and ignores an override's `-h` flag. The `acmart` publication width warning
 follows this list: figures named here are checked against 7.0 inches rather
 than 3.33.
+
+`SHORT_TITLE` sets the running head that `acmart` prints on every page after the
+first. The manuscript's full title stays in the frontmatter:
+
+```make
+SHORT_TITLE := Demonstrating AirForce
+```
+
+Left empty, `acmart` truncates the full title for the running head itself and
+warns while doing so.
 
 ## Figure descriptions
 

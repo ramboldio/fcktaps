@@ -186,16 +186,16 @@ class TapsPackageTests(unittest.TestCase):
                 self.assertEqual(
                     set(package.namelist()),
                     {
-                        "source/",
+                        "Source/",
                         "pdf/",
-                        "source/paper.tex",
-                        "source/zotero.bib",
-                        "source/figures/media/image1.pdf",
+                        "Source/paper.tex",
+                        "Source/zotero.bib",
+                        "Source/figures/media/image1.pdf",
                         "pdf/paper.pdf",
                     },
                 )
                 self.assertEqual(
-                    package.read("source/figures/media/image1.pdf"), b"figure"
+                    package.read("Source/figures/media/image1.pdf"), b"figure"
                 )
                 self.assertEqual(package.read("pdf/paper.pdf"), b"pdf")
 

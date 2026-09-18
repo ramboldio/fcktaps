@@ -11,3 +11,11 @@ FIGURE_ONE_PLACEMENT := float
 # Figure numbers set across both columns, for example "2 5". All other figures
 # stay single-column.
 WIDE_FIGURES :=
+
+# Short title for the running head of every page after the first. Left empty,
+# acmart truncates the full title itself.
+SHORT_TITLE :=
+
+# Name of the TAPS submission archive, without .zip. The TAPS dashboard gives
+# it as ProceedingAcronym-PaperID.
+PACKAGE_NAME := paper

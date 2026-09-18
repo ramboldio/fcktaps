@@ -1,13 +1,15 @@
 DOCX ?=
 PAPER_DIR ?= ../paper
 BUILD_DIR ?= build
-# Optional override of a paper-local setting; the paper's own
-# fcktaps.mk applies when this is empty.
+# Optional overrides of paper-local settings; the paper's own fcktaps.mk
+# applies to each of these that is left empty.
 CITE_STYLE ?=
-PAPER_SETTINGS := $(if $(CITE_STYLE),CITE_STYLE="$(CITE_STYLE)")
+PACKAGE_NAME ?=
+PAPER_SETTINGS := $(if $(CITE_STYLE),CITE_STYLE="$(CITE_STYLE)") \
+	$(if $(PACKAGE_NAME),PACKAGE_NAME="$(PACKAGE_NAME)")
 WARNINGS_FILE := $(BUILD_DIR)/.fcktaps-warnings
 
-.PHONY: all prepare pdf clean clear check-input
+.PHONY: all prepare pdf package clean clear check-input
 
 all: check-input
 	@python3 "$(CURDIR)/report_warnings.py" clear "$(PAPER_DIR)/$(WARNINGS_FILE)"
@@ -48,6 +50,17 @@ pdf: check-input
 		WARNINGS_FILE="$(WARNINGS_FILE)" \
 		$(PAPER_SETTINGS) \
 		compile
+
+package: check-input
+	@DOCX_PATH="$$(cd "$$(dirname "$(DOCX)")" && pwd)/$$(basename "$(DOCX)")"; \
+	$(MAKE) -C "$(PAPER_DIR)" \
+		-f "$(CURDIR)/Paper Folder TEMPLATE/Makefile" \
+		DOCX="$$DOCX_PATH" \
+		FCKTAPS="$(CURDIR)" \
+		BUILD_DIR="$(BUILD_DIR)" \
+		WARNINGS_FILE="$(WARNINGS_FILE)" \
+		$(PAPER_SETTINGS) \
+		package
 
 check-input:
 	@test -n "$(DOCX)" || { \

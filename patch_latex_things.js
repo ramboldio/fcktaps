@@ -45,6 +45,11 @@ const figure_one_placement = () => {
 	return placement;
 };
 
+// acmart prints the full title in the frontmatter and a short title in the
+// running head of every page after the first. Left empty, acmart truncates the
+// full title itself and warns while doing so.
+const short_title = () => (process.env.FCKTAPS_SHORT_TITLE || "").trim();
+
 // Publication figure numbers that span both columns instead of one. Figure 1 is
 // always full width, so it needs no entry.
 const wide_figures = () => new Set(
@@ -239,6 +244,7 @@ const MetaList = (items) => ({
 		const altText = load_alt_text();
 		const figureOnePlacement = figure_one_placement();
 		const wideFigures = wide_figures();
+		const shortTitle = short_title();
 		
 		let blocks = doc.blocks;
 
@@ -356,7 +362,11 @@ const MetaList = (items) => ({
 		};
 
 		const render_title = (title_para) => Para([
-			RawLatex("\\title{"),
+			RawLatex(
+				"\\title"
+				+ (shortTitle ? `[{${escape_latex_text(shortTitle)}}]` : "")
+				+ "{"
+			),
 			...title_para.c,
 			RawLatex("}")
 		]);
